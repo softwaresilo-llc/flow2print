@@ -10,6 +10,10 @@ import { authProvider } from "./providers/authProvider.js";
 import { dataProvider } from "./providers/dataProvider.js";
 import {
   AccountPage,
+  ApiTokensCreatePage,
+  ApiTokensEditPage,
+  ApiTokensListPage,
+  ApiTokensShowPage,
   AssetsCreatePage,
   AssetsEditPage,
   AssetsListPage,
@@ -294,6 +298,11 @@ export const AdminApp = () => (
               <Route path="/users/create" element={<UsersCreatePage />} />
               <Route path="/users/edit/:id" element={<UsersEditPage />} />
               <Route path="/users/show/:id" element={<UsersShowPage />} />
+
+              <Route path="/api-tokens" element={<ApiTokensListPage />} />
+              <Route path="/api-tokens/create" element={<ApiTokensCreatePage />} />
+              <Route path="/api-tokens/edit/:id" element={<ApiTokensEditPage />} />
+              <Route path="/api-tokens/show/:id" element={<ApiTokensShowPage />} />
 
               <Route path="/mail-log" element={<MailLogListPage />} />
               <Route path="/mail-log/show/:id" element={<MailLogShowPage />} />

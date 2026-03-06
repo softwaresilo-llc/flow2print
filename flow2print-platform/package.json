@@ -10,6 +10,10 @@
   },
   "scripts": {
     "dev": "turbo dev --parallel",
+    "infra:up": "docker compose -f infra/compose/docker-compose.yml up -d",
+    "infra:down": "docker compose -f infra/compose/docker-compose.yml down",
+    "db:migrate": "pnpm --filter @flow2print/database db:migrate",
+    "db:migrate:deploy": "pnpm --filter @flow2print/database db:migrate:deploy",
     "build": "turbo build",
     "check": "turbo check",
     "typecheck": "turbo typecheck",

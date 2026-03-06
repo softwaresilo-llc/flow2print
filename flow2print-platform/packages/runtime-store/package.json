@@ -13,6 +13,7 @@
     "test": "node --test dist/**/*.test.js"
   },
   "dependencies": {
+    "@flow2print/database": "workspace:*",
     "@flow2print/design-document": "workspace:*",
     "@flow2print/domain": "workspace:*",
     "@flow2print/http-sdk": "workspace:*"

@@ -40,10 +40,28 @@ test("edge-api serves finalize flow, commerce status, and artifact downloads", a
   try {
     await waitForHealthy(baseUrl);
 
-    const launch = await fetch(`${baseUrl}/v1/launch-sessions`, {
+    const auth = await fetch(`${baseUrl}/v1/auth/login`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        email: "demo@flow2print.local",
+        password: "demo1234"
+      })
+    }).then((response) =>
+      response.json() as Promise<{
+        session: {
+          token: string;
+        };
+      }>
+    );
+
+    const launch = await fetch(`${baseUrl}/v1/launch-sessions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${auth.session.token}`
       },
       body: JSON.stringify({
         connectorType: "magento2",
@@ -60,7 +78,11 @@ test("edge-api serves finalize flow, commerce status, and artifact downloads", a
       })
     }).then((response) => response.json() as Promise<{ projectId: string }>);
 
-    const project = await fetch(`${baseUrl}/v1/projects/${launch.projectId}`).then((response) =>
+    const project = await fetch(`${baseUrl}/v1/projects/${launch.projectId}`, {
+      headers: {
+        Authorization: `Bearer ${auth.session.token}`
+      }
+    }).then((response) =>
       response.json() as Promise<{
         document: {
           surfaces: Array<{
@@ -101,7 +123,8 @@ test("edge-api serves finalize flow, commerce status, and artifact downloads", a
     await fetch(`${baseUrl}/v1/projects/${launch.projectId}/autosave`, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${auth.session.token}`
       },
       body: JSON.stringify({ document: updatedDocument })
     });
@@ -109,7 +132,8 @@ test("edge-api serves finalize flow, commerce status, and artifact downloads", a
     const finalized = await fetch(`${baseUrl}/v1/projects/${launch.projectId}/finalize`, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${auth.session.token}`
       },
       body: JSON.stringify({
         approvalIntent: "auto",
@@ -125,7 +149,8 @@ test("edge-api serves finalize flow, commerce status, and artifact downloads", a
     await fetch(`${baseUrl}/v1/connectors/magento2/order-links`, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${auth.session.token}`
       },
       body: JSON.stringify({
         projectId: launch.projectId,
@@ -135,7 +160,11 @@ test("edge-api serves finalize flow, commerce status, and artifact downloads", a
       })
     });
 
-    const status = await fetch(`${baseUrl}/v1/connectors/magento2/projects/${launch.projectId}/status`).then(
+    const status = await fetch(`${baseUrl}/v1/connectors/magento2/projects/${launch.projectId}/status`, {
+      headers: {
+        Authorization: `Bearer ${auth.session.token}`
+      }
+    }).then(
       (response) =>
         response.json() as Promise<{
           status: string;

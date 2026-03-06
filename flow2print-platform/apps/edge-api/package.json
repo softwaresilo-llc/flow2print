@@ -15,6 +15,7 @@
     "@fastify/cors": "^11.1.0",
     "@flow2print/config": "workspace:*",
     "@flow2print/design-document": "workspace:*",
+    "@flow2print/domain": "workspace:*",
     "@flow2print/http-sdk": "workspace:*",
     "@flow2print/logging": "workspace:*",
     "@flow2print/runtime-store": "workspace:*",

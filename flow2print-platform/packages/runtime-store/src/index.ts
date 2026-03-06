@@ -1,11 +1,13 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { dirname, resolve } from "node:path";
 
+import { getDatabaseRuntimeStore, isPostgresPersistenceEnabled } from "@flow2print/database";
 import type { Flow2PrintDocument } from "@flow2print/design-document";
 import {
   applyTemplateToProject as applyTemplatePreset,
   type AuthSessionRecord,
+  type ApiTokenRecord,
   cloneFinalizedProject,
   type CommerceLinkRecord,
   createAssetRecord,
@@ -83,6 +85,7 @@ startxref
 };
 
 const artifactFilePathForHref = (href: string) => resolve(dataDir, href.replace(/^\//, ""));
+const hashApiTokenSecret = (token: string) => createHash("sha256").update(token).digest("hex");
 
 const hydrateState = (input: Partial<Flow2PrintState>): Flow2PrintState => {
   const defaults = createEmptyState();
@@ -98,6 +101,7 @@ const hydrateState = (input: Partial<Flow2PrintState>): Flow2PrintState => {
       ...input.systemSettings
     },
     users: input.users?.length ? input.users : seedUsers(),
+    apiTokens: input.apiTokens ?? [],
     authSessions: input.authSessions ?? [],
     passwordResets: input.passwordResets ?? [],
     mailLog: input.mailLog ?? [],
@@ -394,6 +398,95 @@ class RuntimeStore {
   async listUsers() {
     await this.ensureLoaded();
     return this.state.users.map(({ passwordHash, ...user }) => user);
+  }
+
+  async listApiTokens() {
+    await this.ensureLoaded();
+    return this.state.apiTokens;
+  }
+
+  async createApiToken(input: {
+    label: string;
+    scopes: ApiTokenRecord["scopes"];
+    expiresAt?: string | null;
+    createdByUserId?: string | null;
+  }) {
+    await this.ensureLoaded();
+    const now = new Date().toISOString();
+    const plainToken = `f2p_${randomUUID()}${randomUUID().replace(/-/g, "")}`;
+    const tokenPrefix = plainToken.slice(0, 12);
+    const record: ApiTokenRecord & { tokenHash: string } = {
+      id: `apt_${randomUUID()}`,
+      label: input.label.trim(),
+      tokenPrefix,
+      scopes: input.scopes,
+      status: "active",
+      lastUsedAt: null,
+      expiresAt: input.expiresAt ?? null,
+      createdByUserId: input.createdByUserId ?? null,
+      createdAt: now,
+      updatedAt: now,
+      tokenHash: hashApiTokenSecret(plainToken)
+    };
+    this.state.apiTokens.unshift(record as ApiTokenRecord);
+    await this.persist();
+    return {
+      token: plainToken,
+      record: this.state.apiTokens[0]!
+    };
+  }
+
+  async updateApiToken(
+    id: string,
+    input: Partial<Pick<ApiTokenRecord, "label" | "scopes" | "expiresAt" | "status">>
+  ) {
+    await this.ensureLoaded();
+    const current = this.state.apiTokens.find((entry) => entry.id === id);
+    if (!current) {
+      return null;
+    }
+    const updated = {
+      ...current,
+      label: input.label?.trim() ? input.label.trim() : current.label,
+      scopes: input.scopes ?? current.scopes,
+      expiresAt: typeof input.expiresAt === "undefined" ? current.expiresAt : input.expiresAt,
+      status: input.status ?? current.status,
+      updatedAt: new Date().toISOString()
+    };
+    this.state.apiTokens = this.state.apiTokens.map((entry) => (entry.id === id ? updated : entry));
+    await this.persist();
+    return updated;
+  }
+
+  async deleteApiToken(id: string) {
+    await this.ensureLoaded();
+    const exists = this.state.apiTokens.some((entry) => entry.id === id);
+    if (!exists) {
+      return false;
+    }
+    this.state.apiTokens = this.state.apiTokens.filter((entry) => entry.id !== id);
+    await this.persist();
+    return true;
+  }
+
+  async getApiTokenBySecret(token: string) {
+    await this.ensureLoaded();
+    const tokenHash = hashApiTokenSecret(token);
+    const match = this.state.apiTokens.find((entry) => (entry as ApiTokenRecord & { tokenHash?: string }).tokenHash === tokenHash);
+    if (!match || match.status !== "active") {
+      return null;
+    }
+    if (match.expiresAt && new Date(match.expiresAt).getTime() <= Date.now()) {
+      return null;
+    }
+    const updated = {
+      ...match,
+      lastUsedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    this.state.apiTokens = this.state.apiTokens.map((entry) => (entry.id === match.id ? updated : entry));
+    await this.persist();
+    return updated;
   }
 
   async createUser(input: {
@@ -1004,11 +1097,11 @@ class RuntimeStore {
   }
 }
 
-let store: RuntimeStore | null = null;
+let store: RuntimeStore | ReturnType<typeof getDatabaseRuntimeStore> | null = null;
 
 export const getRuntimeStore = () => {
   if (!store) {
-    store = new RuntimeStore();
+    store = isPostgresPersistenceEnabled() ? getDatabaseRuntimeStore() : new RuntimeStore();
   }
   return store;
 };

@@ -13,6 +13,22 @@ export type AssetKind = "image" | "svg" | "pdf" | "font" | "technical";
 export type PreflightSeverity = "info" | "warning" | "blocking";
 export type UserRole = "admin" | "manager" | "customer";
 export type EmailTemplateKind = "password_reset";
+export type ApiTokenScope =
+  | "admin:read"
+  | "admin:write"
+  | "users:read"
+  | "users:write"
+  | "catalog:read"
+  | "catalog:write"
+  | "projects:read"
+  | "projects:write"
+  | "assets:read"
+  | "assets:write"
+  | "commerce:read"
+  | "commerce:write"
+  | "mail:read"
+  | "settings:read"
+  | "settings:write";
 
 export interface UserRecord {
   id: string;
@@ -40,6 +56,19 @@ export interface PasswordResetRecord {
   status: "pending" | "used";
   createdAt: string;
   expiresAt: string;
+}
+
+export interface ApiTokenRecord {
+  id: string;
+  label: string;
+  tokenPrefix: string;
+  scopes: ApiTokenScope[];
+  status: "active" | "revoked";
+  lastUsedAt: string | null;
+  expiresAt: string | null;
+  createdByUserId: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface MailLogRecord {
@@ -218,6 +247,7 @@ export interface Flow2PrintState {
   emailTemplates: EmailTemplateRecord[];
   systemSettings: SystemSettingsRecord;
   users: UserRecord[];
+  apiTokens: ApiTokenRecord[];
   authSessions: AuthSessionRecord[];
   passwordResets: PasswordResetRecord[];
   mailLog: MailLogRecord[];
@@ -364,6 +394,16 @@ export const seedUsers = (): UserRecord[] => {
     }
   ];
 };
+
+export const defaultApiTokenScopes = (): ApiTokenScope[] => [
+  "catalog:read",
+  "projects:read",
+  "projects:write",
+  "assets:read",
+  "assets:write",
+  "commerce:read",
+  "commerce:write"
+];
 
 export const hashPassword = (password: string) => `hash:${password}`;
 
@@ -914,6 +954,7 @@ export const createEmptyState = (): Flow2PrintState => ({
   emailTemplates: seedEmailTemplates(),
   systemSettings: seedSystemSettings(),
   users: seedUsers(),
+  apiTokens: [],
   authSessions: [],
   passwordResets: [],
   mailLog: [],

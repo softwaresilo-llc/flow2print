@@ -1,9 +1,10 @@
-import Fastify from "fastify";
+import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import cors from "@fastify/cors";
 import { readFile } from "node:fs/promises";
 
 import { readBaseServiceConfig, readPublicAppConfig } from "@flow2print/config";
 import { validateFlow2PrintDocument } from "@flow2print/design-document";
+import type { ApiTokenScope } from "@flow2print/domain";
 import {
   applyTemplateRequestSchema,
   finalizeProjectRequestSchema,
@@ -23,6 +24,77 @@ const logger = createLogger(SERVICE_NAME);
 const app = Fastify({ loggerInstance: logger });
 const store = getRuntimeStore();
 const getBearerToken = (authorizationHeader?: string) => authorizationHeader?.replace(/^Bearer\s+/i, "").trim() ?? null;
+const scopeIncludes = (ownedScopes: string[], requiredScopes: string[]) => requiredScopes.some((scope) => ownedScopes.includes(scope));
+
+const readAuthContext = async (authorizationHeader?: string) => {
+  const token = getBearerToken(authorizationHeader);
+  if (!token) {
+    return null;
+  }
+
+  const session = await store.getUserBySessionToken(token);
+  if (session) {
+    return {
+      kind: "session" as const,
+      session
+    };
+  }
+
+  const apiToken = await store.getApiTokenBySecret(token);
+  if (apiToken) {
+    return {
+      kind: "api-token" as const,
+      apiToken
+    };
+  }
+
+  return null;
+};
+
+const requireSessionRole = async (
+  request: FastifyRequest,
+  reply: FastifyReply,
+  roles: Array<"admin" | "manager" | "customer">,
+  forbiddenCode = "auth_required"
+) => {
+  const auth = await readAuthContext(request.headers.authorization);
+  if (!auth) {
+    return reply.status(401).send({ code: "auth_required" });
+  }
+  if (auth.kind !== "session" || !roles.includes(auth.session.user.role)) {
+    return reply.status(403).send({ code: forbiddenCode });
+  }
+  return auth.session;
+};
+
+const requireSessionOrApiScope = async (
+  request: FastifyRequest,
+  reply: FastifyReply,
+  options: {
+    roles?: Array<"admin" | "manager" | "customer">;
+    scopes?: string[];
+    forbiddenCode?: string;
+  }
+) => {
+  const auth = await readAuthContext(request.headers.authorization);
+  if (!auth) {
+    return reply.status(401).send({ code: "auth_required" });
+  }
+
+  if (auth.kind === "session") {
+    if (!options.roles || options.roles.includes(auth.session.user.role)) {
+      return auth;
+    }
+  }
+
+  if (auth.kind === "api-token") {
+    if (!options.scopes || scopeIncludes(auth.apiToken.scopes, options.scopes)) {
+      return auth;
+    }
+  }
+
+  return reply.status(403).send({ code: options.forbiddenCode ?? "access_denied" });
+};
 
 await app.register(cors, { origin: true });
 
@@ -190,11 +262,77 @@ app.delete("/v1/users/:id", async (request, reply) => {
   return reply.send({ ok: true });
 });
 
+app.get("/v1/api-tokens", async (request, reply) => {
+  const session = await requireSessionRole(request, reply, ["admin"], "admin_required");
+  if (!session || "statusCode" in session) {
+    return;
+  }
+  return reply.send({ docs: await store.listApiTokens() });
+});
+
+app.post("/v1/api-tokens", async (request, reply) => {
+  const session = await requireSessionRole(request, reply, ["admin"], "admin_required");
+  if (!session || "statusCode" in session) {
+    return;
+  }
+  const body = request.body as {
+    label?: string;
+    scopes?: ApiTokenScope[];
+    expiresAt?: string | null;
+  };
+  if (!body.label || !Array.isArray(body.scopes) || !body.scopes.length) {
+    return reply.status(400).send({ code: "label_and_scopes_required" });
+  }
+  const created = await store.createApiToken({
+    label: body.label,
+    scopes: body.scopes,
+    expiresAt: body.expiresAt ?? null,
+    createdByUserId: session.user.id
+  });
+  return reply.status(201).send({
+    ...created.record,
+    token: created.token
+  });
+});
+
+app.patch("/v1/api-tokens/:id", async (request, reply) => {
+  const session = await requireSessionRole(request, reply, ["admin"], "admin_required");
+  if (!session || "statusCode" in session) {
+    return;
+  }
+  const body = request.body as {
+    label?: string;
+    scopes?: ApiTokenScope[];
+    expiresAt?: string | null;
+    status?: "active" | "revoked";
+  };
+  const token = await store.updateApiToken(String((request.params as { id: string }).id), body);
+  if (!token) {
+    return reply.status(404).send({ code: "api_token_not_found" });
+  }
+  return reply.send(token);
+});
+
+app.delete("/v1/api-tokens/:id", async (request, reply) => {
+  const session = await requireSessionRole(request, reply, ["admin"], "admin_required");
+  if (!session || "statusCode" in session) {
+    return;
+  }
+  const deleted = await store.deleteApiToken(String((request.params as { id: string }).id));
+  if (!deleted) {
+    return reply.status(404).send({ code: "api_token_not_found" });
+  }
+  return reply.send({ ok: true });
+});
+
 app.get("/v1/mail-log", async (request, reply) => {
-  const token = getBearerToken(request.headers.authorization);
-  const session = token ? await store.getUserBySessionToken(token) : null;
-  if (!session || session.user.role !== "admin") {
-    return reply.status(403).send({ code: "admin_required" });
+  const auth = await requireSessionOrApiScope(request, reply, {
+    roles: ["admin"],
+    scopes: ["mail:read", "admin:read"],
+    forbiddenCode: "admin_required"
+  });
+  if (!auth || "statusCode" in auth) {
+    return;
   }
   return reply.send({ docs: await store.listMailLog() });
 });
@@ -331,19 +469,25 @@ app.post("/v1/email-templates/preview", async (request, reply) => {
 });
 
 app.get("/v1/settings", async (request, reply) => {
-  const token = getBearerToken(request.headers.authorization);
-  const session = token ? await store.getUserBySessionToken(token) : null;
-  if (!session || session.user.role !== "admin") {
-    return reply.status(403).send({ code: "admin_required" });
+  const auth = await requireSessionOrApiScope(request, reply, {
+    roles: ["admin"],
+    scopes: ["settings:read", "admin:read"],
+    forbiddenCode: "admin_required"
+  });
+  if (!auth || "statusCode" in auth) {
+    return;
   }
   return reply.send(await store.getSystemSettings());
 });
 
 app.patch("/v1/settings", async (request, reply) => {
-  const token = getBearerToken(request.headers.authorization);
-  const session = token ? await store.getUserBySessionToken(token) : null;
-  if (!session || session.user.role !== "admin") {
-    return reply.status(403).send({ code: "admin_required" });
+  const auth = await requireSessionOrApiScope(request, reply, {
+    roles: ["admin"],
+    scopes: ["settings:write", "admin:write"],
+    forbiddenCode: "admin_required"
+  });
+  if (!auth || "statusCode" in auth) {
+    return;
   }
   const body = request.body as {
     brandName?: string;
@@ -382,6 +526,14 @@ app.get("/artifacts/*", async (request, reply) => {
 });
 
 app.post("/v1/launch-sessions", async (request, reply) => {
+  const auth = await requireSessionOrApiScope(request, reply, {
+    roles: ["admin", "manager"],
+    scopes: ["commerce:write", "projects:write"],
+    forbiddenCode: "launch_access_required"
+  });
+  if (!auth || "statusCode" in auth) {
+    return;
+  }
   const parsed = launchSessionRequestSchema.safeParse(request.body);
   if (!parsed.success) {
     return reply.status(400).send({ code: "invalid_launch_request", issues: parsed.error.issues });
@@ -400,6 +552,14 @@ app.post("/v1/launch-sessions", async (request, reply) => {
 });
 
 app.get("/v1/launch-sessions/:id", async (request, reply) => {
+  const auth = await requireSessionOrApiScope(request, reply, {
+    roles: ["admin", "manager"],
+    scopes: ["commerce:read", "projects:read"],
+    forbiddenCode: "launch_access_required"
+  });
+  if (!auth || "statusCode" in auth) {
+    return;
+  }
   const session = await store.getLaunchSession(String((request.params as { id: string }).id));
   if (!session) {
     return reply.status(404).send({ code: "launch_session_not_found" });
@@ -758,6 +918,14 @@ app.delete("/v1/assets/:id", async (request, reply) => {
 });
 
 app.post("/v1/connectors/magento2/reorders", async (request, reply) => {
+  const auth = await requireSessionOrApiScope(request, reply, {
+    roles: ["admin", "manager"],
+    scopes: ["commerce:write", "projects:write"],
+    forbiddenCode: "commerce_access_required"
+  });
+  if (!auth || "statusCode" in auth) {
+    return;
+  }
   const body = request.body as { projectId?: string };
   if (!body.projectId) {
     return reply.status(400).send({ code: "project_id_required" });
@@ -770,6 +938,14 @@ app.post("/v1/connectors/magento2/reorders", async (request, reply) => {
 });
 
 app.post("/v1/connectors/magento2/quote-links", async (request, reply) => {
+  const auth = await requireSessionOrApiScope(request, reply, {
+    roles: ["admin", "manager"],
+    scopes: ["commerce:write"],
+    forbiddenCode: "commerce_access_required"
+  });
+  if (!auth || "statusCode" in auth) {
+    return;
+  }
   const body = request.body as {
     projectId?: string;
     externalQuoteRef?: string;
@@ -796,6 +972,14 @@ app.post("/v1/connectors/magento2/quote-links", async (request, reply) => {
 });
 
 app.post("/v1/connectors/magento2/order-links", async (request, reply) => {
+  const auth = await requireSessionOrApiScope(request, reply, {
+    roles: ["admin", "manager"],
+    scopes: ["commerce:write"],
+    forbiddenCode: "commerce_access_required"
+  });
+  if (!auth || "statusCode" in auth) {
+    return;
+  }
   const body = request.body as {
     projectId?: string;
     externalOrderRef?: string;
@@ -822,6 +1006,14 @@ app.post("/v1/connectors/magento2/order-links", async (request, reply) => {
 });
 
 app.get("/v1/connectors/magento2/projects/:projectId/status", async (request, reply) => {
+  const auth = await requireSessionOrApiScope(request, reply, {
+    roles: ["admin", "manager"],
+    scopes: ["commerce:read", "projects:read"],
+    forbiddenCode: "commerce_access_required"
+  });
+  if (!auth || "statusCode" in auth) {
+    return;
+  }
   const status = await store.getCommerceStatus(String((request.params as { projectId: string }).projectId));
   if (!status) {
     return reply.status(404).send({ code: "project_not_found" });

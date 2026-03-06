@@ -2,57 +2,57 @@ services:
   postgres:
     image: postgres:17-alpine
     environment:
-      POSTGRES_DB: flow2print
-      POSTGRES_USER: flow2print
-      POSTGRES_PASSWORD: flow2print
+      POSTGRES_DB: ${FLOW2PRINT_POSTGRES_DB:-flow2print}
+      POSTGRES_USER: ${FLOW2PRINT_POSTGRES_USER:-flow2print}
+      POSTGRES_PASSWORD: ${FLOW2PRINT_POSTGRES_PASSWORD:-flow2print}
     ports:
-      - "5432:5432"
+      - "${FLOW2PRINT_POSTGRES_PORT_PUBLIC:-55433}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
 
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "${FLOW2PRINT_REDIS_PORT:-6379}:6379"
 
   rabbitmq:
     image: rabbitmq:4-management-alpine
     ports:
-      - "5672:5672"
-      - "15672:15672"
+      - "${FLOW2PRINT_RABBITMQ_PORT:-5672}:5672"
+      - "${FLOW2PRINT_RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
 
   minio:
     image: minio/minio:latest
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: flow2print
-      MINIO_ROOT_PASSWORD: flow2print
+      MINIO_ROOT_USER: ${FLOW2PRINT_MINIO_USER:-flow2print}
+      MINIO_ROOT_PASSWORD: ${FLOW2PRINT_MINIO_PASSWORD:-flow2print}
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "${FLOW2PRINT_MINIO_PORT:-9000}:9000"
+      - "${FLOW2PRINT_MINIO_CONSOLE_PORT:-9001}:9001"
     volumes:
       - minio-data:/data
 
   mailpit:
     image: axllent/mailpit:latest
     ports:
-      - "1025:1025"
-      - "8025:8025"
+      - "${FLOW2PRINT_MAILPIT_SMTP_PORT:-1025}:1025"
+      - "${FLOW2PRINT_MAILPIT_UI_PORT:-8025}:8025"
 
   prometheus:
     image: prom/prometheus:latest
     ports:
-      - "9090:9090"
+      - "${FLOW2PRINT_PROMETHEUS_PORT:-9090}:9090"
     volumes:
       - ../observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
 
   grafana:
     image: grafana/grafana:latest
     ports:
-      - "3000:3000"
+      - "${FLOW2PRINT_GRAFANA_PORT:-3030}:3000"
     environment:
-      GF_SECURITY_ADMIN_USER: admin
-      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_SECURITY_ADMIN_USER: ${FLOW2PRINT_GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${FLOW2PRINT_GRAFANA_PASSWORD:-admin}
 
 volumes:
   postgres-data:

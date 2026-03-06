@@ -8,6 +8,7 @@ const endpointMap: Record<string, string> = {
   blueprints: "blueprints",
   assets: "assets",
   users: "users",
+  "api-tokens": "api-tokens",
   "mail-log": "mail-log",
   "email-templates": "email-templates",
   settings: "settings"

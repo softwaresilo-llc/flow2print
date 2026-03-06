@@ -1,0 +1,231 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Blueprint {
+  id              String   @id
+  displayName     String
+  kind            String
+  latestVersionId String
+
+  templates       Template[]
+}
+
+model Template {
+  id          String   @id
+  displayName String
+  description String
+  blueprintId String
+  status      String
+
+  blueprint   Blueprint @relation(fields: [blueprintId], references: [id], onDelete: Cascade)
+}
+
+model User {
+  id           String   @id
+  email        String   @unique
+  displayName  String
+  role         String
+  passwordHash String
+  status       String
+  createdAt    DateTime
+  updatedAt    DateTime
+
+  authSessions    AuthSession[]
+  passwordResets  PasswordReset[]
+}
+
+model ApiToken {
+  id              String   @id
+  label           String
+  tokenPrefix     String
+  tokenHash       String   @unique
+  scopes          String[]
+  status          String
+  lastUsedAt      DateTime?
+  expiresAt       DateTime?
+  createdByUserId String?
+  createdAt       DateTime
+  updatedAt       DateTime
+
+  @@index([status])
+}
+
+model AuthSession {
+  id        String   @id
+  userId    String
+  token     String   @unique
+  createdAt DateTime
+  expiresAt DateTime
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model PasswordReset {
+  id        String   @id
+  userId    String
+  token     String   @unique
+  status    String
+  createdAt DateTime
+  expiresAt DateTime
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model MailLog {
+  id        String   @id
+  kind      String
+  recipient String
+  subject   String
+  preview   String
+  html      String
+  createdAt DateTime
+
+  @@index([createdAt])
+}
+
+model EmailTemplate {
+  id          String   @id
+  kind        String
+  label       String
+  subject     String
+  bodyHtml    String
+  previewText String
+  updatedAt   DateTime
+
+  @@index([kind])
+}
+
+model SystemSettings {
+  id              String   @id
+  brandName       String
+  companyName     String
+  companyAddress  String
+  supportEmail    String
+  mailFromName    String
+  mailFromAddress String
+  primaryColor    String
+  logoText        String
+  portalAppUrl    String
+  designerAppUrl  String
+  adminAppUrl     String
+  commerceBaseUrl String
+  defaultLocale   String
+  defaultTimezone String
+  mailHeaderHtml  String
+  mailFooterHtml  String
+  updatedAt       DateTime
+}
+
+model LaunchSession {
+  id                 String   @id
+  projectId          String
+  connectorType      String
+  externalStoreId    String
+  externalProductRef String
+  externalVariantRef String?
+  customerEmail      String
+  isGuest            Boolean
+  locale             String
+  currency           String
+  returnUrl          String
+  options            Json
+  expiresAt          DateTime
+  createdAt          DateTime
+}
+
+model CommerceLink {
+  id                  String   @id
+  projectId           String   @unique
+  connectorType       String
+  externalStoreId     String
+  externalProductRef  String
+  externalCustomerRef String?
+  externalQuoteRef    String?
+  externalOrderRef    String?
+  returnUrl           String
+  state               String
+  createdAt           DateTime
+  updatedAt           DateTime
+}
+
+model Asset {
+  id              String   @id
+  tenantId        String
+  ownerIdentityId String
+  kind            String
+  filename        String
+  mimeType        String
+  widthPx         Int?
+  heightPx        Int?
+  createdAt       DateTime
+}
+
+model Project {
+  id                String   @id
+  title             String
+  status            String
+  approvalState     String
+  blueprintId       String
+  blueprintVersionId String
+  templateId        String?
+  templateVersionId String?
+  commerceLinkId    String?
+  activeVersionId   String
+  launchSessionId   String?
+  externalProductRef String
+  latestJobs        Json
+  latestReportId    String?
+  pricingSignals    Json
+  createdAt         DateTime
+  updatedAt         DateTime
+
+  versions          ProjectVersion[]
+  artifacts         OutputArtifact[]
+  preflightReports  PreflightReport[]
+
+  @@index([status])
+  @@index([blueprintId])
+}
+
+model ProjectVersion {
+  id            String   @id
+  projectId     String
+  versionNumber Int
+  isFinal       Boolean
+  document      Json
+  createdAt     DateTime
+
+  project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, versionNumber])
+}
+
+model OutputArtifact {
+  id               String   @id
+  projectId        String
+  projectVersionId String
+  artifactType     String
+  href             String   @unique
+  createdAt        DateTime
+
+  project          Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model PreflightReport {
+  id               String   @id
+  projectId        String
+  projectVersionId String
+  status           String
+  createdAt        DateTime
+  issues           Json
+
+  project          Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, createdAt])
+}

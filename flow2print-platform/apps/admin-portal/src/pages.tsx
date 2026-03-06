@@ -80,6 +80,7 @@ const endpointMap: Record<AdminResourceName, string> = {
   blueprints: "blueprints",
   assets: "assets",
   users: "users",
+  "api-tokens": "api-tokens",
   "mail-log": "mail-log",
   "email-templates": "email-templates",
   settings: "settings"
@@ -129,6 +130,20 @@ const formatValue = (
       <div className="admin-pre-wrap">
         {typeof value === "string" && value.trim() ? value : "—"}
       </div>
+    );
+  }
+
+  if (field.type === "multiselect" && Array.isArray(value)) {
+    if (!value.length) {
+      return "—";
+    }
+
+    return (
+      <Space wrap size={[4, 4]}>
+        {value.map((entry) => (
+          <Tag key={`${field.key}-${String(entry)}`}>{String(entry)}</Tag>
+        ))}
+      </Space>
     );
   }
 
@@ -412,9 +427,11 @@ const renderInput = (
     case "textarea":
       return <Input.TextArea rows={4} placeholder={field.placeholder} />;
     case "select":
+    case "multiselect":
     case "status":
       return (
         <Select
+          mode={field.type === "multiselect" ? "multiple" : undefined}
           placeholder={field.placeholder ?? `Select ${field.label.toLowerCase()}`}
           options={
             field.optionSource === "blueprints"
@@ -472,6 +489,8 @@ const ResourceListPage = ({ resourceName }: { resourceName: CrudResourceName }) 
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<Record<string, string>>({});
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const { message } = App.useApp();
 
   const reload = async () => {
@@ -543,6 +562,36 @@ const ResourceListPage = ({ resourceName }: { resourceName: CrudResourceName }) 
     }
   };
 
+  const handleDeleteSelected = async () => {
+    if (!selectedRowKeys.length) {
+      return;
+    }
+
+    setBulkDeleting(true);
+    const ids = selectedRowKeys.map(String);
+
+    try {
+      const results = await Promise.allSettled(
+        ids.map((id) => requestJson(buildResourceUrl(resourceName, id), { method: "DELETE" }))
+      );
+      const succeeded = results.filter((result) => result.status === "fulfilled").length;
+      const failed = results.length - succeeded;
+
+      if (succeeded) {
+        message.success(`${succeeded} ${resource.label.toLowerCase()} deleted.`);
+      }
+      if (failed) {
+        message.warning(`${failed} records could not be deleted.`);
+      }
+      setSelectedRowKeys([]);
+      await reload();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "Could not delete the selected records.");
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
+
   return (
     <div className="admin-page">
       <SectionIntro
@@ -593,14 +642,37 @@ const ResourceListPage = ({ resourceName }: { resourceName: CrudResourceName }) 
               </div>
             ) : null}
           </div>
-          <Text type="secondary">
-            {filteredRecords.length} of {records.length} records
-          </Text>
+          <Space>
+            {resource.canDelete ? (
+              <Popconfirm
+                title={`Delete ${selectedRowKeys.length} selected ${resource.label.toLowerCase()}?`}
+                description="This action cannot be undone."
+                onConfirm={() => void handleDeleteSelected()}
+                okButtonProps={{ danger: true, loading: bulkDeleting }}
+                disabled={!selectedRowKeys.length}
+              >
+                <Button danger disabled={!selectedRowKeys.length} icon={<DeleteOutlined />} loading={bulkDeleting}>
+                  Delete selected
+                </Button>
+              </Popconfirm>
+            ) : null}
+            <Text type="secondary">
+              {filteredRecords.length} of {records.length} records
+            </Text>
+          </Space>
         </div>
 
         <Table
           rowKey="id"
           loading={loading}
+          rowSelection={
+            resource.canDelete
+              ? {
+                  selectedRowKeys,
+                  onChange: (nextKeys) => setSelectedRowKeys(nextKeys)
+                }
+              : undefined
+          }
           columns={buildColumns(resource, blueprintMap, templateMap, handleDelete, deletingId)}
           dataSource={filteredRecords}
           locale={{
@@ -818,6 +890,7 @@ const ResourceFormPage = ({
   const [loading, setLoading] = useState(mode === "edit");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [createdToken, setCreatedToken] = useState<string | null>(null);
   const { message } = App.useApp();
   const initialValues = defaultFormValuesByResource[resourceName] ?? {};
   const emailDraftPreview = useEmailTemplateDraftPreview({
@@ -890,9 +963,13 @@ const ResourceFormPage = ({
   const handleFinish = async (values: Record<string, unknown>) => {
     setSubmitting(true);
     setError(null);
+    setCreatedToken(null);
       const payload = { ...values };
       if (resourceName === "projects" && payload.templateId === "") {
         payload.templateId = null;
+      }
+      if (resourceName === "api-tokens" && payload.expiresAt === "") {
+        payload.expiresAt = null;
       }
 
     if (resourceName !== "users" && "password" in payload) {
@@ -911,6 +988,11 @@ const ResourceFormPage = ({
         body: JSON.stringify(payload)
       });
       message.success(`${resource.singularLabel} ${mode === "create" ? "created" : "updated"}.`);
+      if (resourceName === "api-tokens" && mode === "create" && typeof createdOrUpdated.token === "string") {
+        setCreatedToken(String(createdOrUpdated.token));
+        form.resetFields();
+        return;
+      }
       navigate(resource.showPath ? `${resource.listPath}/show/${createdOrUpdated.id ?? params.id}` : resource.listPath);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Could not save changes.");
@@ -941,6 +1023,20 @@ const ResourceFormPage = ({
             ) : (
               <>
                 {error ? <Alert className="admin-alert" type="error" message={error} showIcon /> : null}
+                {createdToken ? (
+                  <Alert
+                    className="admin-alert"
+                    type="success"
+                    showIcon
+                    message="Token created"
+                    description={
+                      <Space direction="vertical" size="small">
+                        <Text>Copy this token now. It is shown only once.</Text>
+                        <Input value={createdToken} readOnly />
+                      </Space>
+                    }
+                  />
+                ) : null}
                 <Form layout="vertical" form={form} initialValues={initialValues} onFinish={(values) => void handleFinish(values)}>
                   <Row gutter={20}>
                     {formFields.map((field: ResourceField) => (
@@ -1896,6 +1992,11 @@ export const UsersListPage = () => <ResourceListPage resourceName="users" />;
 export const UsersCreatePage = () => <ResourceFormPage resourceName="users" mode="create" />;
 export const UsersEditPage = () => <ResourceFormPage resourceName="users" mode="edit" />;
 export const UsersShowPage = () => <ResourceShowPage resourceName="users" />;
+
+export const ApiTokensListPage = () => <ResourceListPage resourceName="api-tokens" />;
+export const ApiTokensCreatePage = () => <ResourceFormPage resourceName="api-tokens" mode="create" />;
+export const ApiTokensEditPage = () => <ResourceFormPage resourceName="api-tokens" mode="edit" />;
+export const ApiTokensShowPage = () => <ResourceShowPage resourceName="api-tokens" />;
 
 export const MailLogListPage = () => <ResourceListPage resourceName="mail-log" />;
 export const MailLogShowPage = () => <ResourceShowPage resourceName="mail-log" />;

@@ -6,6 +6,7 @@ import {
   GlobalOutlined,
   FileImageOutlined,
   FileTextOutlined,
+  KeyOutlined,
   MailOutlined,
   ProfileOutlined,
   SettingOutlined,
@@ -19,10 +20,11 @@ export type AdminResourceName =
   | "blueprints"
   | "assets"
   | "users"
+  | "api-tokens"
   | "mail-log"
   | "email-templates"
   | "settings";
-export type FieldType = "text" | "textarea" | "select" | "email" | "password" | "number" | "date" | "status";
+export type FieldType = "text" | "textarea" | "select" | "multiselect" | "email" | "password" | "number" | "date" | "status";
 export type OptionSource = "blueprints" | "templates";
 
 export interface SelectOption {
@@ -362,6 +364,92 @@ export const adminResources: AdminResourceConfig[] = [
       },
       { key: "createdAt", label: "Created", type: "date", list: true, show: true, disabled: true },
       { key: "updatedAt", label: "Updated", type: "date", list: true, show: true, disabled: true }
+    ]
+  },
+  {
+    name: "api-tokens",
+    label: "API Tokens",
+    singularLabel: "API token",
+    description: "Issue scoped bearer tokens for commerce and backend integrations without sharing user sessions.",
+    listPath: "/api-tokens",
+    createPath: "/api-tokens/create",
+    editPath: "/api-tokens/edit/:id",
+    showPath: "/api-tokens/show/:id",
+    icon: <KeyOutlined />,
+    canCreate: true,
+    canEdit: true,
+    canDelete: true,
+    emptyTitle: "No API tokens yet",
+    emptyDescription: "Create scoped tokens for Magento, automation, or internal service calls.",
+    fields: [
+      {
+        key: "label",
+        label: "Label",
+        type: "text",
+        searchable: true,
+        list: true,
+        form: true,
+        show: true,
+        required: true,
+        placeholder: "Magento connector"
+      },
+      {
+        key: "tokenPrefix",
+        label: "Token prefix",
+        type: "text",
+        list: true,
+        show: true
+      },
+      {
+        key: "scopes",
+        label: "Scopes",
+        type: "multiselect",
+        list: true,
+        form: true,
+        show: true,
+        required: true,
+        options: [
+          { label: "Admin read", value: "admin:read" },
+          { label: "Admin write", value: "admin:write" },
+          { label: "Users read", value: "users:read" },
+          { label: "Users write", value: "users:write" },
+          { label: "Catalog read", value: "catalog:read" },
+          { label: "Catalog write", value: "catalog:write" },
+          { label: "Projects read", value: "projects:read" },
+          { label: "Projects write", value: "projects:write" },
+          { label: "Assets read", value: "assets:read" },
+          { label: "Assets write", value: "assets:write" },
+          { label: "Commerce read", value: "commerce:read" },
+          { label: "Commerce write", value: "commerce:write" },
+          { label: "Mail read", value: "mail:read" },
+          { label: "Settings read", value: "settings:read" },
+          { label: "Settings write", value: "settings:write" }
+        ]
+      },
+      {
+        key: "status",
+        label: "Status",
+        type: "status",
+        list: true,
+        form: true,
+        show: true,
+        options: [
+          { label: "Active", value: "active" },
+          { label: "Revoked", value: "revoked" }
+        ]
+      },
+      {
+        key: "expiresAt",
+        label: "Expires at",
+        type: "text",
+        form: true,
+        show: true,
+        placeholder: "2026-12-31T23:59:59.000Z",
+        extra: "Use an ISO timestamp or leave empty for no expiry."
+      },
+      { key: "lastUsedAt", label: "Last used", type: "date", list: true, show: true },
+      { key: "createdAt", label: "Created", type: "date", list: true, show: true },
+      { key: "updatedAt", label: "Updated", type: "date", show: true }
     ]
   },
   {

@@ -1,0 +1,25 @@
+{
+  "name": "@flow2print/edge-api",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx watch src/main.ts",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "test": "node -e \"console.log('edge-api: no tests yet')\"",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@flow2print/design-document": "workspace:*",
+    "@flow2print/event-contracts": "workspace:*",
+    "@flow2print/http-sdk": "workspace:*",
+    "@flow2print/service-kit": "workspace:*",
+    "@nestjs/common": "^11.1.6",
+    "reflect-metadata": "^0.2.2"
+  },
+  "devDependencies": {
+    "tsx": "^4.20.5"
+  }
+}
+

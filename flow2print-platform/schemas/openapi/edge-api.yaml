@@ -1,0 +1,145 @@
+openapi: 3.1.0
+info:
+  title: Flow2Print Edge API
+  version: 0.1.0
+servers:
+  - url: http://localhost:3000
+paths:
+  /healthz:
+    get:
+      summary: Health check
+      responses:
+        "200":
+          description: Healthy
+  /v1/launch-sessions:
+    post:
+      summary: Create a launch session
+      responses:
+        "200":
+          description: Launch session created
+  /v1/projects:
+    get:
+      summary: List projects
+      responses:
+        "200":
+          description: Projects returned
+  /v1/projects/{id}:
+    get:
+      summary: Get project details
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Project returned
+        "404":
+          description: Project not found
+  /v1/projects/{id}/autosave:
+    post:
+      summary: Autosave a draft project document
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Draft saved
+  /v1/projects/{id}/finalize:
+    post:
+      summary: Finalize a project
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Finalized project response
+  /v1/projects/{id}/artifacts:
+    get:
+      summary: List artifacts for a project
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Artifact list returned
+  /v1/projects/{id}/preflight:
+    get:
+      summary: Get latest preflight report for a project
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Preflight report returned
+  /v1/assets:
+    get:
+      summary: List assets
+      responses:
+        "200":
+          description: Assets returned
+    post:
+      summary: Create an asset metadata record
+      responses:
+        "201":
+          description: Asset created
+  /v1/connectors/magento2/quote-links:
+    post:
+      summary: Link a Flow2Print project to a Magento quote reference
+      responses:
+        "201":
+          description: Quote link created
+  /v1/connectors/magento2/order-links:
+    post:
+      summary: Link a Flow2Print project to a Magento order reference
+      responses:
+        "201":
+          description: Order link created
+  /v1/connectors/magento2/reorders:
+    post:
+      summary: Clone a finalized project into a new draft
+      responses:
+        "200":
+          description: Reorder project created
+  /v1/connectors/magento2/projects/{projectId}/status:
+    get:
+      summary: Get Magento-facing status for a project
+      parameters:
+        - in: path
+          name: projectId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Project status returned
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  projectId:
+                    type: string
+                  projectVersionId:
+                    type: string
+                  status:
+                    type: string
+                  state:
+                    type: string
+                  approvalState:
+                    type: string
+                  preflightStatus:
+                    type: string

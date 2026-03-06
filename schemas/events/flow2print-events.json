@@ -1,0 +1,19 @@
+{
+  "exchange": "flow2print.events.v1",
+  "events": [
+    "identity.user.created",
+    "catalog.blueprint.published",
+    "template.published",
+    "project.created",
+    "project.version.saved",
+    "project.finalized",
+    "asset.uploaded",
+    "production.preview.completed",
+    "production.export.completed",
+    "preflight.completed",
+    "commerce.launch.created",
+    "commerce.quote.linked",
+    "commerce.order.linked"
+  ]
+}
+

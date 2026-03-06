@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Store:etc/config.xsd">
+    <default>
+        <flow2print>
+            <general>
+                <enabled>1</enabled>
+                <base_api_url>http://localhost:3000</base_api_url>
+                <allow_guest_designs>1</allow_guest_designs>
+                <require_finalized_before_add_to_cart>1</require_finalized_before_add_to_cart>
+            </general>
+        </flow2print>
+    </default>
+</config>

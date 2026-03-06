@@ -1,0 +1,339 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "projectId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "projectVersionId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "tenantId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "blueprintVersionId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "templateVersionId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "locale": {
+      "type": "string",
+      "minLength": 2
+    },
+    "currency": {
+      "type": "string",
+      "minLength": 3
+    },
+    "units": {
+      "type": "string",
+      "const": "mm"
+    },
+    "surfaces": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "surfaceId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1
+          },
+          "artboard": {
+            "type": "object",
+            "properties": {
+              "width": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "height": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              }
+            },
+            "required": [
+              "width",
+              "height"
+            ],
+            "additionalProperties": false
+          },
+          "bleedBox": {
+            "type": "object",
+            "properties": {
+              "x": {
+                "type": "number"
+              },
+              "y": {
+                "type": "number"
+              },
+              "width": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "height": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              }
+            },
+            "required": [
+              "x",
+              "y",
+              "width",
+              "height"
+            ],
+            "additionalProperties": false
+          },
+          "safeBox": {
+            "type": "object",
+            "properties": {
+              "x": {
+                "type": "number"
+              },
+              "y": {
+                "type": "number"
+              },
+              "width": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "height": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              }
+            },
+            "required": [
+              "x",
+              "y",
+              "width",
+              "height"
+            ],
+            "additionalProperties": false
+          },
+          "printArea": {
+            "type": "object",
+            "properties": {
+              "x": {
+                "type": "number"
+              },
+              "y": {
+                "type": "number"
+              },
+              "width": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "height": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              }
+            },
+            "required": [
+              "x",
+              "y",
+              "width",
+              "height"
+            ],
+            "additionalProperties": false
+          },
+          "technicalOverlayRef": {
+            "type": "string"
+          },
+          "mockupRef": {
+            "type": "string"
+          },
+          "layers": {
+            "default": [],
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "text",
+                    "image",
+                    "shape",
+                    "svg",
+                    "group",
+                    "barcode",
+                    "qr",
+                    "placeholder",
+                    "technical",
+                    "cutline",
+                    "foldline",
+                    "gluezone"
+                  ]
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "visible": {
+                  "default": true,
+                  "type": "boolean"
+                },
+                "locked": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                },
+                "width": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                "height": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                "rotation": {
+                  "default": 0,
+                  "type": "number"
+                },
+                "opacity": {
+                  "default": 1,
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "metadata": {
+                  "default": {},
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {}
+                }
+              },
+              "required": [
+                "id",
+                "type",
+                "name",
+                "visible",
+                "locked",
+                "x",
+                "y",
+                "width",
+                "height",
+                "rotation",
+                "opacity",
+                "metadata"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "flags": {
+            "default": [],
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "printable",
+                "proofOnly",
+                "technicalOnly"
+              ]
+            }
+          }
+        },
+        "required": [
+          "surfaceId",
+          "label",
+          "artboard",
+          "bleedBox",
+          "safeBox",
+          "layers",
+          "flags"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "assets": {
+      "default": [],
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "assetId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "role": {
+            "default": "source",
+            "type": "string",
+            "enum": [
+              "source",
+              "derived",
+              "font",
+              "technical"
+            ]
+          }
+        },
+        "required": [
+          "assetId",
+          "role"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "variables": {
+      "default": {},
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {}
+    },
+    "metadata": {
+      "default": {},
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {}
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "projectId",
+    "projectVersionId",
+    "tenantId",
+    "blueprintVersionId",
+    "templateVersionId",
+    "locale",
+    "currency",
+    "units",
+    "surfaces",
+    "assets",
+    "variables",
+    "metadata"
+  ],
+  "additionalProperties": false
+}

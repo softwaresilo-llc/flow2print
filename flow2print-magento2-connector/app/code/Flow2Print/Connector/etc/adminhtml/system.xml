@@ -1,0 +1,38 @@
+<?xml version="1.0"?>
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Config:etc/system_file.xsd">
+    <system>
+        <section id="flow2print" translate="label" sortOrder="900" showInDefault="1" showInWebsite="1" showInStore="1">
+            <label>Flow2Print</label>
+            <tab>general</tab>
+            <resource>Flow2Print_Connector::config</resource>
+            <group id="general" translate="label" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
+                <label>General</label>
+                <field id="enabled" translate="label" type="select" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Enable connector</label>
+                    <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                </field>
+                <field id="base_api_url" translate="label" type="text" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Base API URL</label>
+                </field>
+                <field id="client_id" translate="label" type="text" sortOrder="30" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Client ID</label>
+                </field>
+                <field id="client_secret" translate="label" type="obscure" sortOrder="40" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Client Secret</label>
+                </field>
+                <field id="webhook_secret" translate="label" type="obscure" sortOrder="50" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Webhook Secret</label>
+                </field>
+                <field id="allow_guest_designs" translate="label" type="select" sortOrder="60" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Allow guest designs</label>
+                    <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                </field>
+                <field id="require_finalized_before_add_to_cart" translate="label" type="select" sortOrder="70" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Require finalized project before add to cart</label>
+                    <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                </field>
+            </group>
+        </section>
+    </system>
+</config>

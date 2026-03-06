@@ -1,0 +1,26 @@
+{
+  "name": "flow2print/magento2-connector",
+  "description": "Magento 2 connector for the Flow2Print platform",
+  "type": "magento2-module",
+  "license": "Apache-2.0",
+  "require": {
+    "php": "^8.2",
+    "magento/framework": "*",
+    "magento/module-catalog": "*",
+    "magento/module-checkout": "*",
+    "magento/module-quote": "*",
+    "magento/module-sales": "*"
+  },
+  "require-dev": {
+    "phpstan/phpstan": "^2.1",
+    "phpunit/phpunit": "^11.5"
+  },
+  "autoload": {
+    "files": [
+      "app/code/Flow2Print/Connector/registration.php"
+    ],
+    "psr-4": {
+      "Flow2Print\\Connector\\": "app/code/Flow2Print/Connector/"
+    }
+  }
+}

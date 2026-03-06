@@ -1,0 +1,25 @@
+{
+  "name": "@flow2print/designer-web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "test": "node -e \"console.log('designer-web: no tests yet')\"",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@flow2print/design-document": "workspace:*",
+    "@flow2print/ui-kit": "workspace:*",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.12",
+    "@types/react-dom": "^19.1.9",
+    "@vitejs/plugin-react": "^5.0.2",
+    "vite": "^7.1.5"
+  }
+}
+

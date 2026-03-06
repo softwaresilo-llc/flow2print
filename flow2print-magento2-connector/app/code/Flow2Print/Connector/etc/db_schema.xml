@@ -1,0 +1,47 @@
+<?xml version="1.0"?>
+<schema xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="urn:magento:framework:Setup/Declaration/Schema/etc/schema.xsd">
+    <table name="flow2print_quote_item_link" resource="default" engine="innodb" comment="Flow2Print Quote Item Link">
+        <column xsi:type="int" name="entity_id" unsigned="true" nullable="false" identity="true"/>
+        <column xsi:type="int" name="quote_item_id" unsigned="true" nullable="false"/>
+        <column xsi:type="varchar" name="flow2print_project_id" nullable="false" length="64"/>
+        <column xsi:type="varchar" name="flow2print_project_version_id" nullable="true" length="64"/>
+        <column xsi:type="varchar" name="flow2print_status" nullable="false" length="32" default="draft"/>
+        <column xsi:type="text" name="pricing_signals_json" nullable="true"/>
+        <column xsi:type="timestamp" name="created_at" nullable="false" default="CURRENT_TIMESTAMP"/>
+        <column xsi:type="timestamp" name="updated_at" nullable="false" default="CURRENT_TIMESTAMP" on_update="true"/>
+        <constraint xsi:type="primary" referenceId="PRIMARY">
+            <column name="entity_id"/>
+        </constraint>
+        <constraint xsi:type="unique" referenceId="FLOW2PRINT_QUOTE_ITEM_LINK_UNQ_QUOTE_ITEM">
+            <column name="quote_item_id"/>
+        </constraint>
+    </table>
+    <table name="flow2print_order_item_link" resource="default" engine="innodb" comment="Flow2Print Order Item Link">
+        <column xsi:type="int" name="entity_id" unsigned="true" nullable="false" identity="true"/>
+        <column xsi:type="int" name="order_item_id" unsigned="true" nullable="false"/>
+        <column xsi:type="varchar" name="flow2print_project_id" nullable="false" length="64"/>
+        <column xsi:type="varchar" name="flow2print_project_version_id" nullable="true" length="64"/>
+        <column xsi:type="varchar" name="output_artifact_ref" nullable="true" length="128"/>
+        <column xsi:type="varchar" name="preflight_status" nullable="true" length="32"/>
+        <column xsi:type="timestamp" name="created_at" nullable="false" default="CURRENT_TIMESTAMP"/>
+        <column xsi:type="timestamp" name="updated_at" nullable="false" default="CURRENT_TIMESTAMP" on_update="true"/>
+        <constraint xsi:type="primary" referenceId="PRIMARY">
+            <column name="entity_id"/>
+        </constraint>
+        <constraint xsi:type="unique" referenceId="FLOW2PRINT_ORDER_ITEM_LINK_UNQ_ORDER_ITEM">
+            <column name="order_item_id"/>
+        </constraint>
+    </table>
+    <table name="flow2print_sync_ledger" resource="default" engine="innodb" comment="Flow2Print Sync Ledger">
+        <column xsi:type="int" name="entity_id" unsigned="true" nullable="false" identity="true"/>
+        <column xsi:type="varchar" name="event_type" nullable="false" length="64"/>
+        <column xsi:type="varchar" name="external_ref" nullable="true" length="128"/>
+        <column xsi:type="varchar" name="status" nullable="false" length="32" default="pending"/>
+        <column xsi:type="text" name="payload_json" nullable="true"/>
+        <column xsi:type="timestamp" name="created_at" nullable="false" default="CURRENT_TIMESTAMP"/>
+        <constraint xsi:type="primary" referenceId="PRIMARY">
+            <column name="entity_id"/>
+        </constraint>
+    </table>
+</schema>

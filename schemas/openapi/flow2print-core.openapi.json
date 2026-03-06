@@ -1,0 +1,39 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Flow2Print Core API",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/v1/launch-sessions": {
+      "post": {
+        "summary": "Create a launch session",
+        "responses": {
+          "201": {
+            "description": "Launch session created"
+          }
+        }
+      }
+    },
+    "/v1/projects/{id}/finalize": {
+      "post": {
+        "summary": "Finalize a project",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Finalize job accepted"
+          }
+        }
+      }
+    }
+  }
+}

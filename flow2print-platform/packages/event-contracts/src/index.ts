@@ -1,0 +1,28 @@
+export const defaultEventTopics = {
+  exchange: "flow2print.events.v1",
+  commandExchange: "flow2print.commands.v1",
+  topics: [
+    "identity.user.created",
+    "identity.membership.changed",
+    "catalog.blueprint.published",
+    "template.published",
+    "project.created",
+    "project.version.saved",
+    "project.finalized",
+    "project.approval.requested",
+    "asset.uploaded",
+    "asset.variant.ready",
+    "production.preview.requested",
+    "production.preview.completed",
+    "production.export.requested",
+    "production.export.completed",
+    "preflight.requested",
+    "preflight.completed",
+    "commerce.launch.created",
+    "commerce.quote.linked",
+    "commerce.order.linked",
+    "commerce.sync.failed"
+  ]
+} as const;
+
+export type DefaultEventTopic = (typeof defaultEventTopics.topics)[number];

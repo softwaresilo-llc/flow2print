@@ -1,0 +1,17 @@
+# Keep local package noise out of the nested workspace too.
+node_modules/
+dist/
+.turbo/
+.vite/
+coverage/
+.env
+.env.local
+.env.*.local
+*.log
+*.tsbuildinfo
+.flow2print-state.json
+.flow2print-runtime/
+.DS_Store
+apps/*/vite.config.js
+apps/*/vite.config.js.map
+apps/*/vite.config.d.ts

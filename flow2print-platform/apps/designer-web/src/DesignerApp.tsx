@@ -184,8 +184,14 @@ const layerPreviewText = (layer: DesignerLayer) => {
   if (layer.type === "text") {
     return String(layer.metadata.text ?? layer.name).slice(0, 2).toUpperCase();
   }
+  if (layer.type === "qr") {
+    return "QR";
+  }
+  if (layer.type === "barcode") {
+    return "||";
+  }
   if (layer.type === "shape") {
-    return "";
+    return String(layer.name ?? "").slice(0, 2).toUpperCase();
   }
   return "IMG";
 };
@@ -292,6 +298,7 @@ export const DesignerApp = () => {
     originRotation: number;
     startAngle: number;
   } | null>(null);
+  const [filePickerMode, setFilePickerMode] = useState<"insert" | "replace">("insert");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const errorTitle = error?.startsWith("This design link is no longer available")
     ? "Design link expired."
@@ -885,6 +892,70 @@ export const DesignerApp = () => {
     setSelectedLayerId(layerId);
   };
 
+  const addQrLayer = () => {
+    if (!currentSurface) {
+      return;
+    }
+    setContextMenu(null);
+    captureHistory("Add QR code");
+    const layerId = `lyr_${crypto.randomUUID()}`;
+    updateCurrentSurface((surface) => ({
+      ...surface,
+      layers: [
+        ...surface.layers,
+        {
+          id: layerId,
+          type: "qr",
+          name: `QR Code ${surface.layers.length + 1}`,
+          visible: true,
+          locked: false,
+          x: 16,
+          y: 16 + surface.layers.length * 8,
+          width: 28,
+          height: 28,
+          rotation: 0,
+          opacity: 1,
+          metadata: {
+            value: "https://flow2print.local"
+          }
+        }
+      ]
+    }));
+    setSelectedLayerId(layerId);
+  };
+
+  const addBarcodeLayer = () => {
+    if (!currentSurface) {
+      return;
+    }
+    setContextMenu(null);
+    captureHistory("Add barcode");
+    const layerId = `lyr_${crypto.randomUUID()}`;
+    updateCurrentSurface((surface) => ({
+      ...surface,
+      layers: [
+        ...surface.layers,
+        {
+          id: layerId,
+          type: "barcode",
+          name: `Barcode ${surface.layers.length + 1}`,
+          visible: true,
+          locked: false,
+          x: 18,
+          y: 18 + surface.layers.length * 8,
+          width: 54,
+          height: 18,
+          rotation: 0,
+          opacity: 1,
+          metadata: {
+            value: "5901234123457"
+          }
+        }
+      ]
+    }));
+    setSelectedLayerId(layerId);
+  };
+
   const createDemoAsset = async () => {
     if (!project || !currentSurface || !draftDocument) {
       return;
@@ -948,7 +1019,8 @@ export const DesignerApp = () => {
     }
   };
 
-  const openFilePicker = () => {
+  const openFilePicker = (mode: "insert" | "replace" = "insert") => {
+    setFilePickerMode(mode);
     fileInputRef.current?.click();
   };
 
@@ -958,7 +1030,7 @@ export const DesignerApp = () => {
       return;
     }
     setContextMenu(null);
-    captureHistory("Upload image");
+    captureHistory(filePickerMode === "replace" ? "Replace image" : "Upload image");
 
     const objectUrl = URL.createObjectURL(file);
     const dimensions = await new Promise<{ width: number | null; height: number | null }>((resolve) => {
@@ -990,43 +1062,70 @@ export const DesignerApp = () => {
       const asset = await readJson<AssetRecord>(response);
       setAssets((currentAssets) => [asset, ...currentAssets]);
       setLocalAssetUrls((currentUrls) => ({ ...currentUrls, [asset.id]: objectUrl }));
-      const layerId = `lyr_${crypto.randomUUID()}`;
-      const imageSize = getImageLayerSize(currentSurface);
       const alreadyLinked = draftDocument.assets.some((entry) => entry.assetId === asset.id);
-      updateDraftDocument((document) => ({
-        ...document,
-        assets: alreadyLinked ? document.assets : [...document.assets, { assetId: asset.id, role: "source" }],
-        surfaces: document.surfaces.map((surface, index) =>
-          index === selectedSurfaceIndex
-            ? {
-                ...surface,
-                layers: [
-                  ...surface.layers,
-                  {
-                    id: layerId,
-                    type: "image",
-                    name: file.name,
-                    visible: true,
-                    locked: false,
-                    x: Math.round((surface.safeBox.x + 4) * 10) / 10,
-                    y: Math.round((surface.safeBox.y + 4) * 10) / 10,
-                    width: imageSize.width,
-                    height: imageSize.height,
-                    rotation: 0,
-                    opacity: 1,
-                    metadata: {
-                      assetId: asset.id,
-                      fitMode: "cover"
+      if (filePickerMode === "replace" && selectedLayer?.type === "image") {
+        updateDraftDocument((document) => ({
+          ...document,
+          assets: alreadyLinked ? document.assets : [...document.assets, { assetId: asset.id, role: "source" }],
+          surfaces: document.surfaces.map((surface, index) =>
+            index === selectedSurfaceIndex
+              ? {
+                  ...surface,
+                  layers: surface.layers.map((layer) =>
+                    layer.id === selectedLayer.id
+                      ? {
+                          ...layer,
+                          name: file.name,
+                          metadata: {
+                            ...layer.metadata,
+                            assetId: asset.id
+                          }
+                        }
+                      : layer
+                  )
+                }
+              : surface
+          )
+        }));
+      } else {
+        const layerId = `lyr_${crypto.randomUUID()}`;
+        const imageSize = getImageLayerSize(currentSurface);
+        updateDraftDocument((document) => ({
+          ...document,
+          assets: alreadyLinked ? document.assets : [...document.assets, { assetId: asset.id, role: "source" }],
+          surfaces: document.surfaces.map((surface, index) =>
+            index === selectedSurfaceIndex
+              ? {
+                  ...surface,
+                  layers: [
+                    ...surface.layers,
+                    {
+                      id: layerId,
+                      type: "image",
+                      name: file.name,
+                      visible: true,
+                      locked: false,
+                      x: Math.round((surface.safeBox.x + 4) * 10) / 10,
+                      y: Math.round((surface.safeBox.y + 4) * 10) / 10,
+                      width: imageSize.width,
+                      height: imageSize.height,
+                      rotation: 0,
+                      opacity: 1,
+                      metadata: {
+                        assetId: asset.id,
+                        fitMode: "cover"
+                      }
                     }
-                  }
-                ]
-              }
-            : surface
-        )
-      }));
-      setSelectedLayerId(layerId);
+                  ]
+                }
+              : surface
+          )
+        }));
+        setSelectedLayerId(layerId);
+      }
     } finally {
       setSaving(false);
+      setFilePickerMode("insert");
       event.target.value = "";
     }
   };
@@ -1201,6 +1300,78 @@ export const DesignerApp = () => {
       };
     });
     setSelectedLayerId(layerId);
+  };
+
+  const renameCurrentSurface = (label: string) => {
+    if (!currentSurface) {
+      return;
+    }
+    updateCurrentSurface((surface) => ({
+      ...surface,
+      label
+    }));
+  };
+
+  const addSurface = () => {
+    if (!draftDocument || !currentSurface) {
+      return;
+    }
+    captureHistory("Add side");
+    const nextSurface: DesignerSurface = {
+      ...currentSurface,
+      surfaceId: `surface_${crypto.randomUUID()}`,
+      label: `Side ${draftDocument.surfaces.length + 1}`,
+      layers: []
+    };
+    updateDraftDocument((document) => ({
+      ...document,
+      surfaces: [...document.surfaces, nextSurface]
+    }));
+    setSelectedSurfaceIndex(draftDocument.surfaces.length);
+    setSelectedLayerId(null);
+  };
+
+  const duplicateCurrentSurface = () => {
+    if (!draftDocument || !currentSurface) {
+      return;
+    }
+    captureHistory("Duplicate side");
+    const duplicatedSurface: DesignerSurface = {
+      ...currentSurface,
+      surfaceId: `surface_${crypto.randomUUID()}`,
+      label: `${currentSurface.label} copy`,
+      layers: currentSurface.layers.map((layer) => ({
+        ...layer,
+        id: `lyr_${crypto.randomUUID()}`,
+        name: `${layer.name}`
+      }))
+    };
+    updateDraftDocument((document) => ({
+      ...document,
+      surfaces: [
+        ...document.surfaces.slice(0, selectedSurfaceIndex + 1),
+        duplicatedSurface,
+        ...document.surfaces.slice(selectedSurfaceIndex + 1)
+      ]
+    }));
+    setSelectedSurfaceIndex(selectedSurfaceIndex + 1);
+    setSelectedLayerId(duplicatedSurface.layers[0]?.id ?? null);
+  };
+
+  const removeCurrentSurface = () => {
+    if (!draftDocument || draftDocument.surfaces.length <= 1 || !currentSurface) {
+      return;
+    }
+    if (!window.confirm(`Remove ${currentSurface.label}?`)) {
+      return;
+    }
+    captureHistory("Remove side");
+    updateDraftDocument((document) => ({
+      ...document,
+      surfaces: document.surfaces.filter((_, index) => index !== selectedSurfaceIndex)
+    }));
+    setSelectedSurfaceIndex((value) => Math.max(0, value - 1));
+    setSelectedLayerId(null);
   };
 
   const linkCommerce = async (mode: "quote" | "order") => {
@@ -1692,6 +1863,34 @@ export const DesignerApp = () => {
               {leftPanel === "layers" ? (
                 <>
                   <div className="surface-list">
+                    <div className="surface-actions">
+                      <label className="surface-label-editor">
+                        <span>Current side</span>
+                        <input
+                          value={currentSurface.label}
+                          onChange={(event) => renameCurrentSurface(event.target.value)}
+                          disabled={!isEditableProject}
+                        />
+                      </label>
+                      {isEditableProject ? (
+                        <div className="stack-actions">
+                          <button type="button" className="button--ghost" onClick={addSurface}>
+                            Add side
+                          </button>
+                          <button type="button" className="button--ghost" onClick={duplicateCurrentSurface}>
+                            Duplicate
+                          </button>
+                          <button
+                            type="button"
+                            className="button--ghost"
+                            onClick={removeCurrentSurface}
+                            disabled={draftDocument.surfaces.length <= 1}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
                     {draftDocument.surfaces.map((surface, index) => (
                       <button
                         key={surface.surfaceId}
@@ -1844,7 +2043,7 @@ export const DesignerApp = () => {
                   </div>
                   {isEditableProject ? (
                     <div className="stack-actions">
-                      <button type="button" onClick={openFilePicker} disabled={saving}>
+                      <button type="button" onClick={() => openFilePicker("insert")} disabled={saving}>
                         {saving ? "Uploading..." : "Upload image"}
                       </button>
                       <button type="button" className="button--ghost" onClick={() => void createDemoAsset()} disabled={saving}>
@@ -2028,10 +2227,16 @@ export const DesignerApp = () => {
                       <button type="button" className="button--ghost" onClick={addShapeLayer} disabled={project.status === "finalized"}>
                         Shape
                       </button>
+                      <button type="button" className="button--ghost" onClick={addQrLayer} disabled={project.status === "finalized"}>
+                        QR code
+                      </button>
+                      <button type="button" className="button--ghost" onClick={addBarcodeLayer} disabled={project.status === "finalized"}>
+                        Barcode
+                      </button>
                       <button
                         type="button"
                         className="button--ghost"
-                        onClick={openFilePicker}
+                        onClick={() => openFilePicker("insert")}
                         disabled={project.status === "finalized" || saving}
                       >
                         {saving ? "Uploading..." : "Upload image"}
@@ -2182,13 +2387,19 @@ export const DesignerApp = () => {
                   {currentSurface.layers.length === 0 ? (
                     <div className="artboard__empty">
                       <strong>Start this side</strong>
-                      <p>Add text, a shape, or an image. The blue dashed box is the safe area for important content.</p>
+                      <p>Add text, a shape, a QR code, a barcode, or an image. The blue dashed box is the safe area for important content.</p>
                       <div className="artboard__empty-actions">
                         <button type="button" onClick={addTextLayer} disabled={project.status === "finalized"}>
                           Add text
                         </button>
                         <button type="button" className="button--ghost" onClick={addShapeLayer} disabled={project.status === "finalized"}>
                           Add shape
+                        </button>
+                        <button type="button" className="button--ghost" onClick={addQrLayer} disabled={project.status === "finalized"}>
+                          Add QR code
+                        </button>
+                        <button type="button" className="button--ghost" onClick={addBarcodeLayer} disabled={project.status === "finalized"}>
+                          Add barcode
                         </button>
                         <button
                           type="button"
@@ -2204,11 +2415,16 @@ export const DesignerApp = () => {
                   {currentSurface.layers.map((layer) => {
                     const stageAsset = assets.find((asset) => asset.id === String(layer.metadata.assetId ?? ""));
                     const stageAssetPreview = stageAsset ? localAssetUrls[stageAsset.id] : undefined;
+                    const imageFitMode = String(layer.metadata.fitMode ?? "cover");
                     const label =
                       layer.type === "text"
                         ? String(layer.metadata.text ?? layer.name)
                         : layer.type === "shape"
-                          ? "Shape"
+                          ? layer.name
+                          : layer.type === "qr"
+                            ? String(layer.metadata.value ?? "QR code")
+                            : layer.type === "barcode"
+                              ? String(layer.metadata.value ?? "Barcode")
                           : stageAsset?.filename ?? layer.name;
                     const isSelected = layer.id === selectedLayerId;
                     return (
@@ -2225,12 +2441,18 @@ export const DesignerApp = () => {
                           display: layer.visible ? "grid" : "none",
                           transform: `rotate(${layer.rotation}deg)`,
                           transformOrigin: "center center",
-                          background:
-                            layer.type === "shape"
-                              ? String(layer.metadata.fill ?? "#dbe8ff")
-                              : layer.type === "image" && stageAssetPreview
-                                ? `center / cover no-repeat url(${stageAssetPreview})`
-                                : undefined
+                          background: layer.type === "shape" ? String(layer.metadata.fill ?? "#dbe8ff") : undefined,
+                          backgroundImage: layer.type === "image" && stageAssetPreview ? `url(${stageAssetPreview})` : undefined,
+                          backgroundPosition: layer.type === "image" && stageAssetPreview ? "center" : undefined,
+                          backgroundRepeat: layer.type === "image" && stageAssetPreview ? "no-repeat" : undefined,
+                          backgroundSize:
+                            layer.type === "image" && stageAssetPreview
+                              ? imageFitMode === "contain"
+                                ? "contain"
+                                : imageFitMode === "stretch"
+                                  ? "100% 100%"
+                                  : "cover"
+                              : undefined
                         }}
                         onClick={(event) => {
                           event.stopPropagation();
@@ -2258,7 +2480,21 @@ export const DesignerApp = () => {
                         }}
                       >
                         <span className="stage-layer__name">{layer.name}</span>
-                        <span className="stage-layer__label">{label}</span>
+                        <span
+                          className="stage-layer__label"
+                          style={
+                            layer.type === "text"
+                              ? {
+                                  color: String(layer.metadata.color ?? "#1b2430"),
+                                  fontSize: `${Math.max(10, Number(layer.metadata.fontSize ?? 18) * effectiveScale * 0.28)}px`,
+                                  fontWeight: Number(layer.metadata.fontWeight ?? 600),
+                                  textAlign: String(layer.metadata.textAlign ?? "left") as "left" | "center" | "right"
+                                }
+                              : undefined
+                          }
+                        >
+                          {label}
+                        </span>
                         {isSelected && isEditableProject && !layer.locked ? (
                           <>
                             <span
@@ -2394,22 +2630,100 @@ export const DesignerApp = () => {
                       />
                     </label>
                     {selectedLayer.type === "text" ? (
-                      <label>
-                        <span>Text</span>
-                        <textarea
-                          value={String(selectedLayer.metadata.text ?? "")}
-                          onChange={(event) =>
-                            updateSelectedLayer((layer) => ({
-                              ...layer,
-                              metadata: {
-                                ...layer.metadata,
-                                text: event.target.value
+                      <>
+                        <label>
+                          <span>Text</span>
+                          <textarea
+                            value={String(selectedLayer.metadata.text ?? "")}
+                            onChange={(event) =>
+                              updateSelectedLayer((layer) => ({
+                                ...layer,
+                                metadata: {
+                                  ...layer.metadata,
+                                  text: event.target.value
+                                }
+                              }))
+                            }
+                            disabled={project.status === "finalized" || selectedLayer.locked}
+                          />
+                        </label>
+                        <div className="inspector-grid">
+                          <label>
+                            <span>Font size</span>
+                            <input
+                              type="number"
+                              value={Number(selectedLayer.metadata.fontSize ?? 18)}
+                              onChange={(event) =>
+                                updateSelectedLayer((layer) => ({
+                                  ...layer,
+                                  metadata: {
+                                    ...layer.metadata,
+                                    fontSize: clamp(Number(event.target.value) || 18, 10, 96)
+                                  }
+                                }))
                               }
-                            }))
-                          }
-                          disabled={project.status === "finalized" || selectedLayer.locked}
-                        />
-                      </label>
+                              disabled={project.status === "finalized" || selectedLayer.locked}
+                            />
+                          </label>
+                          <label>
+                            <span>Weight</span>
+                            <select
+                              value={String(selectedLayer.metadata.fontWeight ?? "600")}
+                              onChange={(event) =>
+                                updateSelectedLayer((layer) => ({
+                                  ...layer,
+                                  metadata: {
+                                    ...layer.metadata,
+                                    fontWeight: event.target.value
+                                  }
+                                }))
+                              }
+                              disabled={project.status === "finalized" || selectedLayer.locked}
+                            >
+                              <option value="400">Regular</option>
+                              <option value="600">Semibold</option>
+                              <option value="700">Bold</option>
+                            </select>
+                          </label>
+                          <label>
+                            <span>Color</span>
+                            <input
+                              type="color"
+                              value={String(selectedLayer.metadata.color ?? "#1b2430")}
+                              onChange={(event) =>
+                                updateSelectedLayer((layer) => ({
+                                  ...layer,
+                                  metadata: {
+                                    ...layer.metadata,
+                                    color: event.target.value
+                                  }
+                                }))
+                              }
+                              disabled={project.status === "finalized" || selectedLayer.locked}
+                            />
+                          </label>
+                          <label>
+                            <span>Alignment</span>
+                            <select
+                              value={String(selectedLayer.metadata.textAlign ?? "left")}
+                              onChange={(event) =>
+                                updateSelectedLayer((layer) => ({
+                                  ...layer,
+                                  metadata: {
+                                    ...layer.metadata,
+                                    textAlign: event.target.value
+                                  }
+                                }))
+                              }
+                              disabled={project.status === "finalized" || selectedLayer.locked}
+                            >
+                              <option value="left">Left</option>
+                              <option value="center">Center</option>
+                              <option value="right">Right</option>
+                            </select>
+                          </label>
+                        </div>
+                      </>
                     ) : null}
                     {selectedLayer.type === "shape" ? (
                       <label>
@@ -2430,13 +2744,65 @@ export const DesignerApp = () => {
                         />
                       </label>
                     ) : null}
+                    {selectedLayer.type === "qr" || selectedLayer.type === "barcode" ? (
+                      <label>
+                        <span>{selectedLayer.type === "qr" ? "Link or value" : "Code value"}</span>
+                        <input
+                          value={String(selectedLayer.metadata.value ?? "")}
+                          onChange={(event) =>
+                            updateSelectedLayer((layer) => ({
+                              ...layer,
+                              metadata: {
+                                ...layer.metadata,
+                                value: event.target.value
+                              }
+                            }))
+                          }
+                          disabled={project.status === "finalized" || selectedLayer.locked}
+                        />
+                      </label>
+                    ) : null}
                     {selectedLayer.type === "image" ? (
-                      <div className="kv-list">
-                        <div className="kv-item">
-                          <strong>Source file</strong>
-                          <span>{layerAsset?.filename ?? "none"}</span>
+                      <>
+                        <div className="kv-list">
+                          <div className="kv-item">
+                            <strong>Source file</strong>
+                            <span>{layerAsset?.filename ?? "none"}</span>
+                          </div>
                         </div>
-                      </div>
+                        <div className="inspector-grid">
+                          <label>
+                            <span>Fit</span>
+                            <select
+                              value={String(selectedLayer.metadata.fitMode ?? "cover")}
+                              onChange={(event) =>
+                                updateSelectedLayer((layer) => ({
+                                  ...layer,
+                                  metadata: {
+                                    ...layer.metadata,
+                                    fitMode: event.target.value
+                                  }
+                                }))
+                              }
+                              disabled={project.status === "finalized" || selectedLayer.locked}
+                            >
+                              <option value="cover">Cover</option>
+                              <option value="contain">Contain</option>
+                              <option value="stretch">Stretch</option>
+                            </select>
+                          </label>
+                        </div>
+                        <div className="stack-actions">
+                          <button
+                            type="button"
+                            className="button--ghost"
+                            onClick={() => openFilePicker("replace")}
+                            disabled={project.status === "finalized" || selectedLayer.locked || saving}
+                          >
+                            Replace image
+                          </button>
+                        </div>
+                      </>
                     ) : null}
                   </div>
                   <div className="inspector-section">
@@ -2561,6 +2927,12 @@ export const DesignerApp = () => {
                         <div className="kv-item">
                           <strong>Source file</strong>
                           <span>{layerAsset?.filename ?? "none"}</span>
+                        </div>
+                      ) : null}
+                      {selectedLayer.type === "qr" || selectedLayer.type === "barcode" ? (
+                        <div className="kv-item">
+                          <strong>{selectedLayer.type === "qr" ? "Value" : "Code"}</strong>
+                          <span>{String(selectedLayer.metadata.value ?? "") || "n/a"}</span>
                         </div>
                       ) : null}
                     </div>

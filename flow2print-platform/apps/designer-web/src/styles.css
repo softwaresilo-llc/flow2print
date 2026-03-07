@@ -135,8 +135,8 @@ textarea {
 
 .workspace-layout {
   display: grid;
-  grid-template-columns: 240px minmax(0, 1fr) 296px;
-  gap: 12px;
+  grid-template-columns: 300px minmax(0, 1fr) 280px;
+  gap: 16px;
   align-items: start;
   min-height: 0;
   flex: 1;
@@ -152,6 +152,19 @@ textarea {
   display: grid;
   gap: 12px;
   min-height: 0;
+  position: relative;
+}
+
+.workspace-sidebar--navigator {
+  z-index: 3;
+}
+
+.workspace-stage {
+  z-index: 1;
+}
+
+.workspace-sidebar--inspector {
+  z-index: 2;
 }
 
 .panel {
@@ -1246,7 +1259,7 @@ button:disabled {
 
 @media (max-width: 1180px) {
   .workspace-layout {
-    grid-template-columns: 240px minmax(0, 1fr) 300px;
+    grid-template-columns: 280px minmax(0, 1fr) 272px;
   }
 
   .workspace-topbar--editor {

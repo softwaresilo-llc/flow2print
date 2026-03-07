@@ -238,7 +238,7 @@ export const DesignerApp = () => {
   const [templates, setTemplates] = useState<TemplateRecord[]>([]);
   const [recentProjects, setRecentProjects] = useState<ProjectListItem[]>([]);
   const [localAssetUrls, setLocalAssetUrls] = useState<Record<string, string>>({});
-  const [overlay, setOverlay] = useState<null | "templates" | "projects">(null);
+  const [overlay, setOverlay] = useState<null | "templates" | "projects" | "menu">(null);
   const [selectedStarterProductRef, setSelectedStarterProductRef] = useState<string>(starterProducts[0].productRef);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
   const [selectedSurfaceIndex, setSelectedSurfaceIndex] = useState(0);
@@ -247,8 +247,8 @@ export const DesignerApp = () => {
   const [guidesVisible, setGuidesVisible] = useState(true);
   const [gridEnabled, setGridEnabled] = useState(true);
   const [snapEnabled, setSnapEnabled] = useState(true);
-  const [leftPanel, setLeftPanel] = useState<"document" | "assets" | "history">("document");
-  const [rightPanel, setRightPanel] = useState<"object" | "checks" | "delivery">("object");
+  const [leftPanel, setLeftPanel] = useState<"layers" | "assets" | "session">("layers");
+  const [rightPanel, setRightPanel] = useState<"edit" | "review" | "finish">("edit");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [finalizing, setFinalizing] = useState(false);
@@ -353,10 +353,10 @@ export const DesignerApp = () => {
         await loadRecentProjects();
         setSelectedSurfaceIndex(0);
         setZoom(1);
-        setLeftPanel("document");
+        setLeftPanel("layers");
         setSelectedLayerId(projectData.document.surfaces[0]?.layers[0]?.id ?? null);
         setSelectedTemplateId(projectData.templateId);
-        setRightPanel(projectData.status === "finalized" || projectData.status === "ordered" ? "delivery" : "object");
+        setRightPanel(projectData.status === "finalized" || projectData.status === "ordered" ? "finish" : "edit");
       } catch (loadError) {
         if (
           effectiveRoute.mode === "launch" &&
@@ -410,8 +410,8 @@ export const DesignerApp = () => {
     setDraftDocument(deepCloneDocument(projectData.document));
     setAssets(assetData.docs);
     setSelectedTemplateId(projectData.templateId);
-    setLeftPanel("document");
-    setRightPanel(projectData.status === "finalized" || projectData.status === "ordered" ? "delivery" : "object");
+    setLeftPanel("layers");
+    setRightPanel(projectData.status === "finalized" || projectData.status === "ordered" ? "finish" : "edit");
     await loadRecentProjects();
   };
 
@@ -462,7 +462,7 @@ export const DesignerApp = () => {
 
   useEffect(() => {
     if (selectedLayerId && isEditableProject) {
-      setRightPanel("object");
+      setRightPanel("edit");
     }
   }, [isEditableProject, selectedLayerId]);
 
@@ -792,7 +792,7 @@ export const DesignerApp = () => {
       return;
     }
     if (hasBlockingIssues) {
-      setRightPanel("checks");
+      setRightPanel("review");
       return;
     }
     try {
@@ -811,7 +811,7 @@ export const DesignerApp = () => {
         })
       });
       await reloadProject(project.id);
-      setRightPanel("delivery");
+      setRightPanel("finish");
       setHistoryPast([]);
       setHistoryFuture([]);
       setHistoryPastLabels([]);
@@ -1278,7 +1278,7 @@ export const DesignerApp = () => {
       await reloadProject(project.id);
       setOverlay(null);
       setSelectedSurfaceIndex(0);
-      setRightPanel("object");
+      setRightPanel("edit");
       setHistoryPast([]);
       setHistoryFuture([]);
       setHistoryPastLabels([]);
@@ -1335,7 +1335,7 @@ export const DesignerApp = () => {
   };
 
   const openExportPanel = () => {
-    setRightPanel("delivery");
+    setRightPanel("finish");
   };
 
   useEffect(() => {
@@ -1581,7 +1581,7 @@ export const DesignerApp = () => {
 
     return (
       <div className={`workspace-shell ${isEmbedded ? "workspace-shell--embedded" : ""}`}>
-        <header className="workspace-topbar">
+        <header className="workspace-topbar workspace-topbar--editor">
           <div className="workspace-title">
             <p className="workspace-label">Project</p>
             <h1>{project.title}</h1>
@@ -1595,69 +1595,84 @@ export const DesignerApp = () => {
               {hasBlockingIssues ? <span className="badge badge--danger">review required</span> : null}
             </div>
           </div>
-          <div className="workspace-actions">
-            <button type="button" className="button--ghost" onClick={() => setOverlay("projects")}>
-              Open project
+          <div className="workspace-mode-switch" role="tablist" aria-label="Designer workflow">
+            <button
+              type="button"
+              className={`workspace-mode ${rightPanel === "edit" ? "workspace-mode--active" : ""}`}
+              onClick={() => setRightPanel("edit")}
+            >
+              Edit
             </button>
-            {isEditableProject ? (
+            <button
+              type="button"
+              className={`workspace-mode ${rightPanel === "review" ? "workspace-mode--active" : ""}`}
+              onClick={() => setRightPanel("review")}
+            >
+              Review
+            </button>
+            <button
+              type="button"
+              className={`workspace-mode ${rightPanel === "finish" ? "workspace-mode--active" : ""}`}
+              onClick={() => setRightPanel("finish")}
+            >
+              Finish
+            </button>
+          </div>
+          <div className="workspace-actions workspace-actions--editor">
+            {isEditableProject && rightPanel === "edit" ? (
+              <button type="button" className="button--ghost" onClick={() => void saveDraftDocument()} disabled={!hasUnsavedChanges || saving}>
+                {saving ? "Saving..." : "Save draft"}
+              </button>
+            ) : null}
+            {isEditableProject && rightPanel === "edit" ? (
+              <button type="button" onClick={() => setRightPanel("review")}>
+                Review design
+              </button>
+            ) : null}
+            {isEditableProject && rightPanel === "review" ? (
               <>
-                <button
-                  type="button"
-                  className="button--ghost"
-                  onClick={() => setOverlay("templates")}
-                  disabled={templateBusy}
-                >
-                  {templateBusy ? "Changing..." : "Change template"}
-                </button>
-                <button
-                  type="button"
-                  className="button--ghost"
-                  onClick={resetDraft}
-                  disabled={!hasUnsavedChanges || saving}
-                >
-                  Discard changes
-                </button>
-                <button type="button" onClick={() => void saveDraftDocument()} disabled={!hasUnsavedChanges || saving}>
-                  {saving ? "Saving..." : "Save draft"}
+                <button type="button" className="button--ghost" onClick={() => setRightPanel("edit")}>
+                  Back to edit
                 </button>
                 <button type="button" onClick={() => void finalizeProject()} disabled={finalizing || hasBlockingIssues}>
                   {finalizing ? "Creating..." : "Create print files"}
                 </button>
               </>
-            ) : (
+            ) : null}
+            {!isEditableProject && rightPanel === "finish" ? (
               <button type="button" onClick={openExportPanel}>
                 Open export
               </button>
-            )}
-            <button type="button" className="button--ghost" onClick={closeWorkspace}>
-              {isEmbedded ? "Done" : "Back"}
+            ) : null}
+            <button type="button" className="button--ghost" onClick={() => setOverlay("menu")}>
+              More
             </button>
           </div>
         </header>
 
         <section className="workspace-layout">
-          <aside className="workspace-sidebar">
-            <article className="panel panel--tight">
-              <div className="section-heading">
+          <aside className="workspace-sidebar workspace-sidebar--navigator">
+            <article className="panel panel--tight panel--navigator">
+              <div className="section-heading section-heading--compact">
                 <div>
-                  <h3>Workspace</h3>
-                  <p>Move between document structure, reusable assets, and recent changes.</p>
+                  <h3>Navigator</h3>
+                  <p>Pages, layers, assets, and session tools.</p>
                 </div>
                 <span className="badge badge--neutral">
-                  {leftPanel === "document"
+                  {leftPanel === "layers"
                     ? `${currentSurface.layers.length} items`
                     : leftPanel === "assets"
                       ? `${availableImageAssets.length} files`
                       : `${historyPast.length} changes`}
                 </span>
               </div>
-              <div className="panel-tabs">
+              <div className="panel-tabs panel-tabs--navigator">
                 <button
                   type="button"
-                  className={`panel-tab ${leftPanel === "document" ? "panel-tab--active" : ""}`}
-                  onClick={() => setLeftPanel("document")}
+                  className={`panel-tab ${leftPanel === "layers" ? "panel-tab--active" : ""}`}
+                  onClick={() => setLeftPanel("layers")}
                 >
-                  Document
+                  Pages & layers
                 </button>
                 <button
                   type="button"
@@ -1668,13 +1683,13 @@ export const DesignerApp = () => {
                 </button>
                 <button
                   type="button"
-                  className={`panel-tab ${leftPanel === "history" ? "panel-tab--active" : ""}`}
-                  onClick={() => setLeftPanel("history")}
+                  className={`panel-tab ${leftPanel === "session" ? "panel-tab--active" : ""}`}
+                  onClick={() => setLeftPanel("session")}
                 >
-                  History
+                  Session
                 </button>
               </div>
-              {leftPanel === "document" ? (
+              {leftPanel === "layers" ? (
                 <>
                   <div className="surface-list">
                     {draftDocument.surfaces.map((surface, index) => (
@@ -1887,7 +1902,7 @@ export const DesignerApp = () => {
                   </div>
                 </>
               ) : null}
-              {leftPanel === "history" ? (
+              {leftPanel === "session" ? (
                 <>
                   <div className="history-summary">
                     <div className="kv-item">
@@ -1968,44 +1983,44 @@ export const DesignerApp = () => {
             </article>
           </aside>
 
-          <section className="workspace-stage">
-            <div className="stage-header">
+          <section className="workspace-stage workspace-stage--primary">
+            <div className="stage-header stage-header--editor">
               <div>
                 <p className="workspace-label">Canvas</p>
                 <h2>{currentSurface.label}</h2>
                 <p className="stage-subtitle">
-                  {isEditableProject
+                  {rightPanel === "edit"
                     ? selectedLayer
                       ? `Editing ${selectedLayer.name}`
-                      : "Add an item or select one on the canvas."
-                    : selectedLayer
-                      ? `Previewing ${selectedLayer.name}`
-                      : "Preview only. Open another project or reorder to make changes."}
+                      : "Add content or select an item on the canvas."
+                    : rightPanel === "review"
+                      ? "Check layout warnings and print readiness for this side."
+                      : "Use generated files or hand the design off to the next step."}
                 </p>
               </div>
               <div className="badge-row">
                 <span className="badge badge--neutral">{currentSurface.layers.length} layers</span>
-                <span className="badge badge--neutral">{documentSummary.layerCount} total objects</span>
                 <span className="badge badge--neutral">{documentSummary.assetCount} linked assets</span>
+                <span className="badge badge--neutral">{currentTemplate?.displayName ?? "Blank start"}</span>
               </div>
             </div>
-            {hasBlockingIssues ? (
+            {hasBlockingIssues && rightPanel !== "review" ? (
               <div className="workspace-alert workspace-alert--warning">
                 <div>
                   <strong>Review needed before print files can be created.</strong>
                   <p>Fix the blocking items in Review, or add content directly on the canvas if this side is still empty.</p>
                 </div>
-                <button type="button" className="button--ghost" onClick={() => setRightPanel("checks")}>
+                <button type="button" className="button--ghost" onClick={() => setRightPanel("review")}>
                   Open review
                 </button>
               </div>
             ) : null}
 
             <div className="stage-wrapper">
-              <div className="stage-toolbar">
-                {isEditableProject ? (
+              {rightPanel === "edit" ? (
+                <div className="stage-toolbar">
                   <div className="stage-toolbar__group">
-                    <span className="stage-toolbar__label">Add</span>
+                    <span className="stage-toolbar__label">Insert</span>
                     <div className="stack-actions">
                       <button type="button" onClick={addTextLayer} disabled={project.status === "finalized"}>
                         Text
@@ -2039,53 +2054,51 @@ export const DesignerApp = () => {
                       </button>
                     </div>
                   </div>
-                ) : (
                   <div className="stage-toolbar__group">
-                    <span className="stage-toolbar__label">Mode</span>
-                    <div className="readonly-strip">
-                      <strong>Preview mode</strong>
-                      <span>This design already has print files. You can inspect it here or open another project.</span>
+                    <span className="stage-toolbar__label">View</span>
+                    <div className="stack-actions">
+                      <span className="badge badge--neutral">Zoom {Math.round(zoom * 100)}%</span>
+                      <button type="button" className="button--ghost" onClick={() => setZoom((value) => clamp(value - 0.1, 0.5, 2))}>
+                        -
+                      </button>
+                      <button type="button" className="button--ghost" onClick={() => setZoom(1)}>
+                        Fit
+                      </button>
+                      <button type="button" className="button--ghost" onClick={() => setZoom((value) => clamp(value + 0.1, 0.5, 2))}>
+                        +
+                      </button>
+                      <button type="button" className={`button--ghost ${gridEnabled ? "toggle-active" : ""}`} onClick={() => setGridEnabled((value) => !value)}>
+                        Grid
+                      </button>
+                      <button type="button" className={`button--ghost ${guidesVisible ? "toggle-active" : ""}`} onClick={() => setGuidesVisible((value) => !value)}>
+                        Guides
+                      </button>
+                      <button type="button" className={`button--ghost ${snapEnabled ? "toggle-active" : ""}`} onClick={() => setSnapEnabled((value) => !value)}>
+                        Snap
+                      </button>
+                      <button type="button" className="button--ghost" onClick={undoChange} disabled={historyPast.length === 0}>
+                        Undo
+                      </button>
+                      <button type="button" className="button--ghost" onClick={redoChange} disabled={historyFuture.length === 0}>
+                        Redo
+                      </button>
                     </div>
                   </div>
-                )}
-                <div className="stage-toolbar__group">
-                  <span className="stage-toolbar__label">View</span>
-                  <div className="stack-actions">
-                    <span className="badge badge--neutral">Zoom {Math.round(zoom * 100)}%</span>
-                    <button type="button" className="button--ghost" onClick={() => setZoom((value) => clamp(value - 0.1, 0.5, 2))}>
-                      -
-                    </button>
-                    <button type="button" className="button--ghost" onClick={() => setZoom(1)}>
-                      Fit
-                    </button>
-                    <button type="button" className="button--ghost" onClick={() => setZoom((value) => clamp(value + 0.1, 0.5, 2))}>
-                      +
-                    </button>
-                    <button type="button" className={`button--ghost ${gridEnabled ? "toggle-active" : ""}`} onClick={() => setGridEnabled((value) => !value)}>
-                      Grid
-                    </button>
-                    <button type="button" className={`button--ghost ${guidesVisible ? "toggle-active" : ""}`} onClick={() => setGuidesVisible((value) => !value)}>
-                      Guides
-                    </button>
-                    <button type="button" className={`button--ghost ${snapEnabled ? "toggle-active" : ""}`} onClick={() => setSnapEnabled((value) => !value)}>
-                      Snap
-                    </button>
-                    {isEditableProject ? (
-                      <>
-                        <button type="button" className="button--ghost" onClick={undoChange} disabled={historyPast.length === 0}>
-                          Undo
-                        </button>
-                        <button type="button" className="button--ghost" onClick={redoChange} disabled={historyFuture.length === 0}>
-                          Redo
-                        </button>
-                      </>
-                    ) : null}
-                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="readonly-strip">
+                  <strong>{rightPanel === "review" ? "Review mode" : "Finish mode"}</strong>
+                  <span>
+                    {rightPanel === "review"
+                      ? "Resolve issues and confirm this side is ready."
+                      : "Open generated files or sync this project back to the shop."}
+                  </span>
+                </div>
+              )}
+              {rightPanel === "edit" ? (
               <div className="layout-guide-bar">
                 <div className="layout-guide-bar__intro">
-                  <strong>Layout</strong>
+                  <strong>Print guides</strong>
                   <span>Keep important content inside the safe area. Backgrounds may extend into bleed.</span>
                 </div>
                 <div className="layout-guide-bar__items">
@@ -2106,7 +2119,8 @@ export const DesignerApp = () => {
                   </span>
                 </div>
               </div>
-              {isEditableProject && selectedLayer ? (
+              ) : null}
+              {isEditableProject && rightPanel === "edit" && selectedLayer ? (
                 <div className="selection-toolbar">
                   <div className="selection-toolbar__intro">
                     <strong>{selectedLayer.name}</strong>
@@ -2121,12 +2135,6 @@ export const DesignerApp = () => {
                     </button>
                     <button type="button" className="button--ghost" onClick={() => toggleSelectedLayerFlag("locked")}>
                       {selectedLayer.locked ? "Unlock" : "Lock"}
-                    </button>
-                    <button type="button" className="button--ghost" onClick={() => moveSelectedLayer("forward")}>
-                      Bring forward
-                    </button>
-                    <button type="button" className="button--ghost" onClick={() => moveSelectedLayer("backward")}>
-                      Send backward
                     </button>
                     <button type="button" className="button--ghost" onClick={() => alignSelectedLayer("center")}>
                       Center X
@@ -2306,81 +2314,34 @@ export const DesignerApp = () => {
               </div>
             </div>
 
-            <div className="surface-meta-grid">
-              <div className="metric-card">
-                <strong>Artboard</strong>
-                <span className="metric-value">
-                  {currentSurface.artboard.width} × {currentSurface.artboard.height}
-                </span>
-              </div>
-              <div className="metric-card">
-                <strong>Safe area</strong>
-                <span className="metric-value">
-                  {safeAreaBox?.width ?? currentSurface.safeBox.width} × {safeAreaBox?.height ?? currentSurface.safeBox.height}
-                </span>
-              </div>
-              <div className="metric-card">
-                <strong>Version</strong>
-                <span className="metric-value metric-value--small">{project.activeVersionId.slice(-12)}</span>
-              </div>
-            </div>
-            <div className="layout-guide-card">
-              <div className="kv-list">
-                <div className="kv-item">
-                  <strong>Guides</strong>
-                  <span>{guidesVisible ? "Visible on canvas" : "Hidden from canvas"}</span>
-                </div>
-                <div className="kv-item">
-                  <strong>Placement</strong>
-                  <span>{snapEnabled ? "Snap is on with 2 mm steps." : "Snap is off for free placement."}</span>
-                </div>
-              </div>
-            </div>
           </section>
 
-          <aside className="workspace-sidebar">
+          <aside className="workspace-sidebar workspace-sidebar--inspector">
             <article className="panel panel--tight">
-              <div className="section-heading">
+              <div className="section-heading section-heading--compact">
                 <div>
-                  <h3>Inspector</h3>
-                  <p>Edit the selected item, review warnings, or export the result.</p>
+                  <h3>{rightPanel === "edit" ? "Properties" : rightPanel === "review" ? "Review" : "Files & hand-off"}</h3>
+                  <p>
+                    {rightPanel === "edit"
+                      ? "Edit the selected item or inspect its placement."
+                      : rightPanel === "review"
+                        ? "Resolve issues and confirm print readiness."
+                        : "Open files or sync this project back to the shop."}
+                  </p>
                 </div>
               </div>
-              <div className="panel-tabs">
-                <button
-                  type="button"
-                  className={`panel-tab ${rightPanel === "object" ? "panel-tab--active" : ""}`}
-                  onClick={() => setRightPanel("object")}
-                >
-                  Edit
-                </button>
-                <button
-                  type="button"
-                  className={`panel-tab ${rightPanel === "checks" ? "panel-tab--active" : ""}`}
-                  onClick={() => setRightPanel("checks")}
-                >
-                  Review
-                </button>
-                <button
-                  type="button"
-                  className={`panel-tab ${rightPanel === "delivery" ? "panel-tab--active" : ""}`}
-                  onClick={() => setRightPanel("delivery")}
-                >
-                  Export
-                </button>
-              </div>
-              {rightPanel === "object" && !selectedLayer ? (
+              {rightPanel === "edit" && !selectedLayer ? (
                 <div className="inspector-empty">
-                  <h4>Select an item</h4>
-                  <p>Click any text, shape or image on the canvas to edit it here.</p>
+                  <h4>Nothing selected</h4>
+                  <p>Select an item on the canvas to edit its content and placement here.</p>
                   <div className="inspector-empty__steps">
-                    <span>1. Add an item in the canvas toolbar.</span>
-                    <span>2. Click it on the canvas.</span>
-                    <span>3. Edit its content and size here.</span>
+                    <span>Add content from the Insert toolbar.</span>
+                    <span>Select it on the canvas.</span>
+                    <span>Adjust content, size, and appearance here.</span>
                   </div>
                 </div>
               ) : null}
-              {rightPanel === "object" && selectedLayer && isEditableProject ? (
+              {rightPanel === "edit" && selectedLayer && isEditableProject ? (
                 <div className="inspector-form">
                   <div className="inspector-summary">
                     <div>
@@ -2562,7 +2523,7 @@ export const DesignerApp = () => {
                   </div>
                 </div>
               ) : null}
-              {rightPanel === "object" && selectedLayer && !isEditableProject ? (
+              {rightPanel === "edit" && selectedLayer && !isEditableProject ? (
                 <div className="inspector-form">
                   <div className="inspector-summary">
                     <div>
@@ -2638,7 +2599,7 @@ export const DesignerApp = () => {
                   </div>
                 </div>
               ) : null}
-              {rightPanel === "checks" ? (
+              {rightPanel === "review" ? (
                 <>
                   <div className={`review-summary ${hasBlockingIssues ? "review-summary--warning" : "review-summary--pass"}`}>
                     <div>
@@ -2666,7 +2627,7 @@ export const DesignerApp = () => {
                             Show selected item
                           </button>
                         ) : null}
-                        <button type="button" className="button--ghost" onClick={() => setRightPanel("object")}>
+                          <button type="button" className="button--ghost" onClick={() => setRightPanel("edit")}>
                           Back to editing
                         </button>
                       </div>
@@ -2708,11 +2669,11 @@ export const DesignerApp = () => {
                   </div>
                 </>
               ) : null}
-              {rightPanel === "delivery" ? (
+              {rightPanel === "finish" ? (
                 <>
                   <div className="section-heading">
                     <div>
-                      <h3>Output files</h3>
+                      <h3>Files</h3>
                       <p>Generated after you create print files.</p>
                     </div>
                     <span className="badge badge--neutral">{project.artifacts.length}</span>
@@ -2730,8 +2691,8 @@ export const DesignerApp = () => {
                   </div>
                   <div className="section-heading">
                     <div>
-                      <h3>Shop link</h3>
-                      <p>Quote and order connection for the current project.</p>
+                      <h3>Hand-off</h3>
+                      <p>Project references for the next system step.</p>
                     </div>
                   </div>
                   <div className="stack-actions">
@@ -2782,11 +2743,19 @@ export const DesignerApp = () => {
         <div className="workspace-overlay__panel">
           <div className="section-heading">
             <div>
-              <h3>{overlay === "templates" ? "Choose a template" : "Open another project"}</h3>
+              <h3>
+                {overlay === "templates"
+                  ? "Choose a template"
+                  : overlay === "projects"
+                    ? "Open another project"
+                    : "Workspace options"}
+              </h3>
               <p>
                 {overlay === "templates"
                   ? "Templates replace the current draft layout with a new starting structure."
-                  : "Jump to another saved project without leaving the designer shell."}
+                  : overlay === "projects"
+                    ? "Jump to another saved project without leaving the designer shell."
+                    : "Session actions live here so the canvas can stay focused on design work."}
               </p>
             </div>
             <button type="button" className="button--ghost" onClick={() => setOverlay(null)}>
@@ -2842,6 +2811,53 @@ export const DesignerApp = () => {
                   </div>
                 </article>
               ))}
+            </div>
+          ) : null}
+
+          {overlay === "menu" ? (
+            <div className="workspace-menu-grid">
+              <article className="template-card">
+                <div>
+                  <h3>Project</h3>
+                  <p>Open another project or close this workspace.</p>
+                </div>
+                <div className="product-actions">
+                  <button type="button" className="button--ghost" onClick={() => setOverlay("projects")}>
+                    Open project
+                  </button>
+                  <button type="button" className="button--ghost" onClick={closeWorkspace}>
+                    {isEmbedded ? "Done" : "Back"}
+                  </button>
+                </div>
+              </article>
+              <article className="template-card">
+                <div>
+                  <h3>Template</h3>
+                  <p>{currentTemplate?.displayName ?? "Blank layout"}</p>
+                </div>
+                <div className="product-actions">
+                  <button type="button" className="button--ghost" onClick={() => setOverlay("templates")} disabled={templateBusy}>
+                    {templateBusy ? "Changing..." : "Change template"}
+                  </button>
+                  <button type="button" className="button--ghost" onClick={resetDraft} disabled={!hasUnsavedChanges || saving}>
+                    Discard changes
+                  </button>
+                </div>
+              </article>
+              <article className="template-card">
+                <div>
+                  <h3>Session</h3>
+                  <p>{historyPast.length} local changes, {hasUnsavedChanges ? "unsaved work pending" : "all changes saved"}.</p>
+                </div>
+                <div className="product-actions">
+                  <button type="button" className="button--ghost" onClick={undoChange} disabled={historyPast.length === 0 || !isEditableProject}>
+                    Undo
+                  </button>
+                  <button type="button" className="button--ghost" onClick={redoChange} disabled={historyFuture.length === 0 || !isEditableProject}>
+                    Redo
+                  </button>
+                </div>
+              </article>
             </div>
           ) : null}
         </div>

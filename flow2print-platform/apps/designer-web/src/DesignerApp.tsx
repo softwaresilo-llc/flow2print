@@ -4,6 +4,8 @@ import type { Flow2PrintDocument } from "@flow2print/design-document";
 import { summarizeDocument } from "@flow2print/editor-engine";
 import { AppShell } from "@flow2print/ui-kit";
 
+import { FabricCanvasStage, type FabricCanvasStageHandle } from "./components/FabricCanvasStage";
+
 const trimTrailingSlash = (value: string) => value.replace(/\/+$/, "");
 const browserOrigin =
   typeof window !== "undefined" ? `${window.location.protocol}//${window.location.hostname}` : "";
@@ -147,6 +149,7 @@ const humanizeStatus = (value: string) => value.replaceAll("_", " ");
 
 const deepCloneDocument = (document: Flow2PrintDocument) =>
   JSON.parse(JSON.stringify(document)) as Flow2PrintDocument;
+const deepCloneLayer = (layer: DesignerLayer) => JSON.parse(JSON.stringify(layer)) as DesignerLayer;
 
 const pruneUnusedDocumentAssets = (document: Flow2PrintDocument): Flow2PrintDocument => {
   const usedAssetIds = new Set(
@@ -170,15 +173,6 @@ const snapToStep = (value: number, enabled: boolean) =>
 const getImageLayerSize = (surface: DesignerSurface) => ({
   width: Math.max(18, Math.min(surface.safeBox.width * 0.6, surface.artboard.width - 12, 68)),
   height: Math.max(18, Math.min(surface.safeBox.height * 0.45, surface.artboard.height - 12, 58))
-});
-const clampBoxToArtboard = (
-  box: { x: number; y: number; width: number; height: number },
-  artboard: { width: number; height: number }
-) => ({
-  x: clamp(box.x, 0, artboard.width),
-  y: clamp(box.y, 0, artboard.height),
-  width: clamp(box.width, 0, Math.max(0, artboard.width - clamp(box.x, 0, artboard.width))),
-  height: clamp(box.height, 0, Math.max(0, artboard.height - clamp(box.y, 0, artboard.height)))
 });
 const layerPreviewText = (layer: DesignerLayer) => {
   if (layer.type === "text") {
@@ -249,12 +243,18 @@ export const DesignerApp = () => {
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
   const [selectedSurfaceIndex, setSelectedSurfaceIndex] = useState(0);
   const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null);
+  const [selectedLayerIds, setSelectedLayerIds] = useState<string[]>([]);
   const [zoom, setZoom] = useState(1);
   const [guidesVisible, setGuidesVisible] = useState(true);
   const [gridEnabled, setGridEnabled] = useState(true);
   const [snapEnabled, setSnapEnabled] = useState(true);
   const [leftPanel, setLeftPanel] = useState<"layers" | "assets" | "session">("layers");
   const [rightPanel, setRightPanel] = useState<"edit" | "review" | "finish">("edit");
+  const [cropMode, setCropMode] = useState(false);
+  const [viewportSize, setViewportSize] = useState(() => ({
+    width: typeof window !== "undefined" ? window.innerWidth : 1440,
+    height: typeof window !== "undefined" ? window.innerHeight : 1024
+  }));
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [finalizing, setFinalizing] = useState(false);
@@ -272,34 +272,9 @@ export const DesignerApp = () => {
   const [historyFuture, setHistoryFuture] = useState<Flow2PrintDocument[]>([]);
   const [historyPastLabels, setHistoryPastLabels] = useState<string[]>([]);
   const [historyFutureLabels, setHistoryFutureLabels] = useState<string[]>([]);
-  const [dragState, setDragState] = useState<{
-    layerId: string;
-    surfaceIndex: number;
-    startClientX: number;
-    startClientY: number;
-    originX: number;
-    originY: number;
-  } | null>(null);
-  const [resizeState, setResizeState] = useState<{
-    layerId: string;
-    surfaceIndex: number;
-    startClientX: number;
-    startClientY: number;
-    originWidth: number;
-    originHeight: number;
-    layerX: number;
-    layerY: number;
-  } | null>(null);
-  const [rotateState, setRotateState] = useState<{
-    layerId: string;
-    surfaceIndex: number;
-    centerClientX: number;
-    centerClientY: number;
-    originRotation: number;
-    startAngle: number;
-  } | null>(null);
   const [filePickerMode, setFilePickerMode] = useState<"insert" | "replace">("insert");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const stageRef = useRef<FabricCanvasStageHandle | null>(null);
   const errorTitle = error?.startsWith("This design link is no longer available")
     ? "Design link expired."
     : error?.startsWith("This project is no longer available")
@@ -309,6 +284,18 @@ export const DesignerApp = () => {
   useEffect(() => {
     setRouteFallbackActive(false);
   }, [route.mode, route.value]);
+
+  useEffect(() => {
+    const handleResize = () => {
+      setViewportSize({
+        width: window.innerWidth,
+        height: window.innerHeight
+      });
+    };
+
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   const loadRecentProjects = async () => {
     const response = await fetch(resolveApiUrl("/v1/projects"));
@@ -362,6 +349,7 @@ export const DesignerApp = () => {
         setZoom(1);
         setLeftPanel("layers");
         setSelectedLayerId(projectData.document.surfaces[0]?.layers[0]?.id ?? null);
+        setSelectedLayerIds(projectData.document.surfaces[0]?.layers[0]?.id ? [projectData.document.surfaces[0].layers[0].id] : []);
         setSelectedTemplateId(projectData.templateId);
         setRightPanel(projectData.status === "finalized" || projectData.status === "ordered" ? "finish" : "edit");
       } catch (loadError) {
@@ -419,17 +407,29 @@ export const DesignerApp = () => {
     setSelectedTemplateId(projectData.templateId);
     setLeftPanel("layers");
     setRightPanel(projectData.status === "finalized" || projectData.status === "ordered" ? "finish" : "edit");
+    setSelectedLayerId(projectData.document.surfaces[selectedSurfaceIndex]?.layers[0]?.id ?? projectData.document.surfaces[0]?.layers[0]?.id ?? null);
+    setSelectedLayerIds(
+      projectData.document.surfaces[selectedSurfaceIndex]?.layers[0]?.id
+        ? [projectData.document.surfaces[selectedSurfaceIndex].layers[0].id]
+        : projectData.document.surfaces[0]?.layers[0]?.id
+          ? [projectData.document.surfaces[0].layers[0].id]
+          : []
+    );
     await loadRecentProjects();
   };
 
   const currentSurface = draftDocument?.surfaces[selectedSurfaceIndex] ?? null;
   const selectedLayer = currentSurface?.layers.find((layer) => layer.id === selectedLayerId) ?? null;
+  const selectedLayers = currentSurface?.layers.filter((layer) => selectedLayerIds.includes(layer.id)) ?? [];
+  const isCompactViewport = viewportSize.width <= 720;
+  const multiSelectionActive = selectedLayerIds.length > 1;
+  const canGroupSelection = multiSelectionActive && selectedLayers.every((layer) => layer.type !== "group");
+  const canDistributeSelection = selectedLayerIds.length > 2;
+  const canUngroupSelection = !multiSelectionActive && selectedLayer?.type === "group";
   const contextMenuLayer = currentSurface?.layers.find((layer) => layer.id === contextMenu?.layerId) ?? null;
   const layerAsset = selectedLayer
     ? assets.find((asset) => asset.id === String(selectedLayer.metadata.assetId ?? ""))
     : null;
-  const safeAreaBox = currentSurface ? clampBoxToArtboard(currentSurface.safeBox, currentSurface.artboard) : null;
-  const bleedAreaBox = currentSurface ? clampBoxToArtboard(currentSurface.bleedBox, currentSurface.artboard) : null;
   const compatibleTemplates = useMemo(
     () => templates.filter((template) => template.blueprintId === (project?.blueprintId ?? blueprintForProductRef(selectedStarterProductRef))),
     [project?.blueprintId, selectedStarterProductRef, templates]
@@ -459,19 +459,38 @@ export const DesignerApp = () => {
     }
     const surface = draftDocument.surfaces[selectedSurfaceIndex];
     if (!surface) {
+      setSelectedLayerIds([]);
       setSelectedLayerId(null);
       return;
     }
     if (!selectedLayerId || !surface.layers.some((layer) => layer.id === selectedLayerId)) {
+      setSelectedLayerIds(surface.layers[0]?.id ? [surface.layers[0].id] : []);
       setSelectedLayerId(surface.layers[0]?.id ?? null);
     }
   }, [draftDocument, selectedLayerId, selectedSurfaceIndex]);
+
+  useEffect(() => {
+    if (selectedLayerIds.length > 1) {
+      return;
+    }
+    const nextIds = selectedLayerId ? [selectedLayerId] : [];
+    if (selectedLayerIds.length === nextIds.length && selectedLayerIds.every((value, index) => value === nextIds[index])) {
+      return;
+    }
+    setSelectedLayerIds(nextIds);
+  }, [selectedLayerId, selectedLayerIds]);
 
   useEffect(() => {
     if (selectedLayerId && isEditableProject) {
       setRightPanel("edit");
     }
   }, [isEditableProject, selectedLayerId]);
+
+  useEffect(() => {
+    if (!selectedLayer || selectedLayer.type !== "image") {
+      setCropMode(false);
+    }
+  }, [selectedLayer]);
 
   useEffect(() => {
     if (!contextMenu) {
@@ -525,137 +544,13 @@ export const DesignerApp = () => {
     );
   }, [isEmbedded, project]);
 
+  const stageViewportWidth =
+    viewportSize.width <= 720 ? Math.max(260, viewportSize.width - 36) : viewportSize.width <= 1120 ? Math.max(360, viewportSize.width - 56) : 820;
+  const stageViewportHeight = viewportSize.width <= 720 ? 360 : 620;
   const stageScale = currentSurface
-    ? Math.min(820 / currentSurface.artboard.width, 620 / currentSurface.artboard.height, 5.5)
+    ? Math.min(stageViewportWidth / currentSurface.artboard.width, stageViewportHeight / currentSurface.artboard.height, 5.5)
     : 1;
   const effectiveScale = stageScale * zoom;
-
-  useEffect(() => {
-    if (!dragState && !resizeState && !rotateState) {
-      return;
-    }
-
-    const handlePointerMove = (event: PointerEvent) => {
-      setDraftDocument((document) => {
-        if (!document) {
-          return document;
-        }
-
-        if (dragState) {
-          const deltaX = (event.clientX - dragState.startClientX) / effectiveScale;
-          const deltaY = (event.clientY - dragState.startClientY) / effectiveScale;
-
-          return {
-            ...document,
-            surfaces: document.surfaces.map((surface, surfaceIndex) =>
-              surfaceIndex === dragState.surfaceIndex
-                ? {
-                    ...surface,
-                    layers: surface.layers.map((layer) =>
-                      layer.id === dragState.layerId
-                        ? {
-                            ...layer,
-                            x: snapToStep(
-                              clamp(dragState.originX + deltaX, 0, Math.max(0, surface.artboard.width - layer.width)),
-                              snapEnabled
-                            ),
-                            y: snapToStep(
-                              clamp(dragState.originY + deltaY, 0, Math.max(0, surface.artboard.height - layer.height)),
-                              snapEnabled
-                            )
-                          }
-                        : layer
-                    )
-                  }
-                : surface
-            )
-          };
-        }
-
-        if (resizeState) {
-          const deltaX = (event.clientX - resizeState.startClientX) / effectiveScale;
-          const deltaY = (event.clientY - resizeState.startClientY) / effectiveScale;
-
-          return {
-            ...document,
-            surfaces: document.surfaces.map((surface, surfaceIndex) =>
-              surfaceIndex === resizeState.surfaceIndex
-                ? {
-                    ...surface,
-                    layers: surface.layers.map((layer) =>
-                      layer.id === resizeState.layerId
-                        ? {
-                            ...layer,
-                            width: snapToStep(
-                              clamp(
-                                resizeState.originWidth + deltaX,
-                                8,
-                                Math.max(8, surface.artboard.width - resizeState.layerX)
-                              ),
-                              snapEnabled
-                            ),
-                            height: snapToStep(
-                              clamp(
-                                resizeState.originHeight + deltaY,
-                                8,
-                                Math.max(8, surface.artboard.height - resizeState.layerY)
-                              ),
-                              snapEnabled
-                            )
-                          }
-                        : layer
-                    )
-                  }
-                : surface
-            )
-          };
-        }
-
-        if (rotateState) {
-          const currentAngle =
-            (Math.atan2(event.clientY - rotateState.centerClientY, event.clientX - rotateState.centerClientX) * 180) /
-            Math.PI;
-          const deltaAngle = currentAngle - rotateState.startAngle;
-          const normalizedRotation = ((((rotateState.originRotation + deltaAngle) % 360) + 540) % 360) - 180;
-
-          return {
-            ...document,
-            surfaces: document.surfaces.map((surface, surfaceIndex) =>
-              surfaceIndex === rotateState.surfaceIndex
-                ? {
-                    ...surface,
-                    layers: surface.layers.map((layer) =>
-                      layer.id === rotateState.layerId
-                        ? {
-                            ...layer,
-                            rotation: Math.round(normalizedRotation)
-                          }
-                        : layer
-                    )
-                  }
-                : surface
-            )
-          };
-        }
-
-        return document;
-      });
-    };
-
-    const handlePointerUp = () => {
-      setDragState(null);
-      setResizeState(null);
-      setRotateState(null);
-    };
-
-    window.addEventListener("pointermove", handlePointerMove);
-    window.addEventListener("pointerup", handlePointerUp);
-
-    return () => {
-      window.removeEventListener("pointermove", handlePointerMove);
-      window.removeEventListener("pointerup", handlePointerUp);
-    };
-  }, [dragState, effectiveScale, resizeState, rotateState, snapEnabled]);
 
   const updateDraftDocument = (updater: (document: Flow2PrintDocument) => Flow2PrintDocument) => {
     setDraftDocument((document) => (document ? updater(document) : document));
@@ -728,6 +623,7 @@ export const DesignerApp = () => {
     if (!isEditableProject) {
       return;
     }
+    setSelectedLayerIds([layerId]);
     setSelectedLayerId(layerId);
     setContextMenu({
       x: "clientX" in event ? event.clientX : 0,
@@ -857,6 +753,7 @@ export const DesignerApp = () => {
         }
       ]
     }));
+    setSelectedLayerIds([layerId]);
     setSelectedLayerId(layerId);
   };
 
@@ -889,6 +786,7 @@ export const DesignerApp = () => {
         }
       ]
     }));
+    setSelectedLayerIds([layerId]);
     setSelectedLayerId(layerId);
   };
 
@@ -921,6 +819,7 @@ export const DesignerApp = () => {
         }
       ]
     }));
+    setSelectedLayerIds([layerId]);
     setSelectedLayerId(layerId);
   };
 
@@ -953,6 +852,7 @@ export const DesignerApp = () => {
         }
       ]
     }));
+    setSelectedLayerIds([layerId]);
     setSelectedLayerId(layerId);
   };
 
@@ -1013,6 +913,7 @@ export const DesignerApp = () => {
             : surface
         )
       }));
+      setSelectedLayerIds([layerId]);
       setSelectedLayerId(layerId);
     } finally {
       setSaving(false);
@@ -1121,6 +1022,7 @@ export const DesignerApp = () => {
               : surface
           )
         }));
+        setSelectedLayerIds([layerId]);
         setSelectedLayerId(layerId);
       }
     } finally {
@@ -1149,7 +1051,33 @@ export const DesignerApp = () => {
         )
       })
     );
-    setSelectedLayerId(currentSurface.layers.find((layer) => layer.id !== selectedLayerId)?.id ?? null);
+    const nextLayerId = currentSurface.layers.find((layer) => layer.id !== selectedLayerId)?.id ?? null;
+    setSelectedLayerIds(nextLayerId ? [nextLayerId] : []);
+    setSelectedLayerId(nextLayerId);
+  };
+
+  const deleteSelectedLayers = () => {
+    if (!currentSurface || selectedLayerIds.length === 0) {
+      return;
+    }
+    const selectedSet = new Set(selectedLayerIds);
+    setContextMenu(null);
+    captureHistory(selectedLayerIds.length > 1 ? "Delete selection" : "Delete item");
+    updateDraftDocument((document) =>
+      pruneUnusedDocumentAssets({
+        ...document,
+        surfaces: document.surfaces.map((surface, index) =>
+          index === selectedSurfaceIndex
+            ? {
+                ...surface,
+                layers: surface.layers.filter((layer) => !selectedSet.has(layer.id))
+              }
+            : surface
+        )
+      })
+    );
+    setSelectedLayerIds([]);
+    setSelectedLayerId(null);
   };
 
   const duplicateSelectedLayer = () => {
@@ -1172,6 +1100,7 @@ export const DesignerApp = () => {
         }
       ]
     }));
+    setSelectedLayerIds([layerId]);
     setSelectedLayerId(layerId);
   };
 
@@ -1185,28 +1114,15 @@ export const DesignerApp = () => {
   };
 
   const moveSelectedLayer = (direction: "forward" | "backward") => {
-    if (!selectedLayer || !currentSurface) {
+    if (!selectedLayerIds.length) {
       return;
     }
     setContextMenu(null);
-    captureHistory(direction === "forward" ? "Bring forward" : "Send backward");
-    updateCurrentSurface((surface) => {
-      const index = surface.layers.findIndex((layer) => layer.id === selectedLayer.id);
-      if (index === -1) {
-        return surface;
-      }
-      const targetIndex =
-        direction === "forward"
-          ? clamp(index + 1, 0, surface.layers.length - 1)
-          : clamp(index - 1, 0, surface.layers.length - 1);
-      if (targetIndex === index) {
-        return surface;
-      }
-      const nextLayers = [...surface.layers];
-      const [layer] = nextLayers.splice(index, 1);
-      nextLayers.splice(targetIndex, 0, layer);
-      return { ...surface, layers: nextLayers };
-    });
+    if (direction === "forward") {
+      stageRef.current?.bringForward();
+      return;
+    }
+    stageRef.current?.sendBackward();
   };
 
   const alignSelectedLayer = (mode: "left" | "center" | "right" | "top" | "middle" | "bottom") => {
@@ -1299,7 +1215,123 @@ export const DesignerApp = () => {
         )
       };
     });
+    setSelectedLayerIds([layerId]);
     setSelectedLayerId(layerId);
+  };
+
+  const groupSelectedLayers = () => {
+    if (!currentSurface || selectedLayerIds.length < 2) {
+      return;
+    }
+    const selectedSet = new Set(selectedLayerIds);
+    const selectedLayers = currentSurface.layers.filter((layer) => selectedSet.has(layer.id));
+    if (selectedLayers.length < 2) {
+      return;
+    }
+    captureHistory("Group items");
+    const minX = Math.min(...selectedLayers.map((layer) => layer.x));
+    const minY = Math.min(...selectedLayers.map((layer) => layer.y));
+    const maxX = Math.max(...selectedLayers.map((layer) => layer.x + layer.width));
+    const maxY = Math.max(...selectedLayers.map((layer) => layer.y + layer.height));
+    const insertIndex = currentSurface.layers.findIndex((layer) => selectedSet.has(layer.id));
+    const groupId = `lyr_${crypto.randomUUID()}`;
+    const groupLayer: DesignerLayer = {
+      id: groupId,
+      type: "group",
+      name: `Group ${currentSurface.layers.length - selectedLayers.length + 1}`,
+      visible: true,
+      locked: false,
+      x: Number(minX.toFixed(2)),
+      y: Number(minY.toFixed(2)),
+      width: Number((maxX - minX).toFixed(2)),
+      height: Number((maxY - minY).toFixed(2)),
+      rotation: 0,
+      opacity: 1,
+      metadata: {
+        children: selectedLayers.map((layer) => deepCloneLayer(layer))
+      }
+    };
+    updateCurrentSurface((surface) => {
+      const unselected = surface.layers.filter((layer) => !selectedSet.has(layer.id));
+      const nextLayers = [...unselected];
+      nextLayers.splice(Math.max(insertIndex, 0), 0, groupLayer);
+      return {
+        ...surface,
+        layers: nextLayers
+      };
+    });
+    setSelectedLayerIds([groupId]);
+    setSelectedLayerId(groupId);
+  };
+
+  const ungroupSelectedLayer = () => {
+    if (!selectedLayer || selectedLayer.type !== "group" || !currentSurface) {
+      return;
+    }
+    const children = Array.isArray(selectedLayer.metadata.children)
+      ? (selectedLayer.metadata.children as DesignerLayer[])
+      : [];
+    if (children.length === 0) {
+      return;
+    }
+    captureHistory("Ungroup items");
+    updateCurrentSurface((surface) => {
+      const groupIndex = surface.layers.findIndex((layer) => layer.id === selectedLayer.id);
+      const nextLayers = [...surface.layers.filter((layer) => layer.id !== selectedLayer.id)];
+      nextLayers.splice(groupIndex, 0, ...children);
+      return {
+        ...surface,
+        layers: nextLayers
+      };
+    });
+    setSelectedLayerIds(children.map((child) => child.id));
+    setSelectedLayerId(children[0]?.id ?? null);
+  };
+
+  const distributeSelectedLayers = (axis: "horizontal" | "vertical") => {
+    if (!currentSurface || selectedLayerIds.length < 3) {
+      return;
+    }
+    const selectedSet = new Set(selectedLayerIds);
+    const selectedLayers = currentSurface.layers.filter((layer) => selectedSet.has(layer.id));
+    const sortedLayers = [...selectedLayers].sort((left, right) => (axis === "horizontal" ? left.x - right.x : left.y - right.y));
+    const first = sortedLayers[0];
+    const last = sortedLayers[sortedLayers.length - 1];
+    const distance = axis === "horizontal" ? last.x - first.x : last.y - first.y;
+    const step = distance / (sortedLayers.length - 1);
+    captureHistory(axis === "horizontal" ? "Distribute horizontally" : "Distribute vertically");
+    updateCurrentSurface((surface) => ({
+      ...surface,
+      layers: surface.layers.map((layer) => {
+        const selectedIndex = sortedLayers.findIndex((entry) => entry.id === layer.id);
+        if (selectedIndex <= 0 || selectedIndex === sortedLayers.length - 1) {
+          return layer;
+        }
+        return axis === "horizontal"
+          ? {
+              ...layer,
+              x: Number((first.x + step * selectedIndex).toFixed(2))
+            }
+          : {
+              ...layer,
+              y: Number((first.y + step * selectedIndex).toFixed(2))
+            };
+      })
+    }));
+  };
+
+  const updateSelectedImageCrop = (field: "cropX" | "cropY", value: number) => {
+    if (!selectedLayer || selectedLayer.type !== "image") {
+      return;
+    }
+    captureHistory(field === "cropX" ? "Adjust crop horizontally" : "Adjust crop vertically");
+    updateSelectedLayer((layer) => ({
+      ...layer,
+      metadata: {
+        ...layer.metadata,
+        [field]: clamp(Number(value) || 0, 0, 4096)
+      }
+    }));
   };
 
   const renameCurrentSurface = (label: string) => {
@@ -1328,6 +1360,7 @@ export const DesignerApp = () => {
       surfaces: [...document.surfaces, nextSurface]
     }));
     setSelectedSurfaceIndex(draftDocument.surfaces.length);
+    setSelectedLayerIds([]);
     setSelectedLayerId(null);
   };
 
@@ -1355,6 +1388,7 @@ export const DesignerApp = () => {
       ]
     }));
     setSelectedSurfaceIndex(selectedSurfaceIndex + 1);
+    setSelectedLayerIds(duplicatedSurface.layers[0]?.id ? [duplicatedSurface.layers[0].id] : []);
     setSelectedLayerId(duplicatedSurface.layers[0]?.id ?? null);
   };
 
@@ -1371,6 +1405,7 @@ export const DesignerApp = () => {
       surfaces: document.surfaces.filter((_, index) => index !== selectedSurfaceIndex)
     }));
     setSelectedSurfaceIndex((value) => Math.max(0, value - 1));
+    setSelectedLayerIds([]);
     setSelectedLayerId(null);
   };
 
@@ -1420,6 +1455,7 @@ export const DesignerApp = () => {
     setHistoryFutureLabels([]);
     setDraftDocument(deepCloneDocument(project.document));
     setSelectedSurfaceIndex(0);
+    setSelectedLayerIds(project.document.surfaces[0]?.layers[0]?.id ? [project.document.surfaces[0].layers[0].id] : []);
     setSelectedLayerId(project.document.surfaces[0]?.layers[0]?.id ?? null);
   };
 
@@ -1533,11 +1569,12 @@ export const DesignerApp = () => {
         void saveDraftDocument();
       } else if (event.key === "Escape") {
         event.preventDefault();
+        setSelectedLayerIds([]);
         setSelectedLayerId(null);
         setContextMenu(null);
-      } else if (isEditableProject && selectedLayer && isDelete) {
+      } else if (isEditableProject && selectedLayerIds.length > 0 && isDelete) {
         event.preventDefault();
-        deleteSelectedLayer();
+        deleteSelectedLayers();
       } else if (isEditableProject && selectedLayer && currentSurface && event.key.startsWith("Arrow")) {
         event.preventDefault();
         captureHistory(`Nudge ${event.key.replace("Arrow", "").toLowerCase()}`);
@@ -1561,7 +1598,7 @@ export const DesignerApp = () => {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [currentSurface, hasUnsavedChanges, historyFuture, historyPast, isEditableProject, selectedLayer, snapEnabled]);
+  }, [currentSurface, hasUnsavedChanges, historyFuture, historyPast, isEditableProject, selectedLayer, selectedLayerIds, snapEnabled]);
 
   const linkedAssets = useMemo(() => {
     if (!draftDocument) {
@@ -1896,7 +1933,11 @@ export const DesignerApp = () => {
                         key={surface.surfaceId}
                         type="button"
                         className={`surface-tab ${index === selectedSurfaceIndex ? "surface-tab--active" : ""}`}
-                        onClick={() => setSelectedSurfaceIndex(index)}
+                        onClick={() => {
+                          setSelectedSurfaceIndex(index);
+                          setSelectedLayerIds(surface.layers[0]?.id ? [surface.layers[0].id] : []);
+                          setSelectedLayerId(surface.layers[0]?.id ?? null);
+                        }}
                       >
                         <strong>{surface.label}</strong>
                         <span>
@@ -1924,7 +1965,10 @@ export const DesignerApp = () => {
                         className={`layer-row ${layer.id === selectedLayerId ? "layer-row--active" : ""} ${
                           draggingLayerId === layer.id ? "layer-row--dragging" : ""
                         } ${dropTargetLayerId === layer.id ? "layer-row--drop-target" : ""}`}
-                        onClick={() => setSelectedLayerId(layer.id)}
+                        onClick={() => {
+                          setSelectedLayerIds([layer.id]);
+                          setSelectedLayerId(layer.id);
+                        }}
                         onContextMenu={(event) => openLayerContextMenu(event, layer.id)}
                         role="button"
                         tabIndex={0}
@@ -1964,6 +2008,7 @@ export const DesignerApp = () => {
                         onKeyDown={(event) => {
                           if (event.key === "Enter" || event.key === " ") {
                             event.preventDefault();
+                            setSelectedLayerIds([layer.id]);
                             setSelectedLayerId(layer.id);
                           }
                         }}
@@ -1993,6 +2038,7 @@ export const DesignerApp = () => {
                             onPointerDown={(event) => {
                               event.preventDefault();
                               event.stopPropagation();
+                              setSelectedLayerIds([layer.id]);
                               setSelectedLayerId(layer.id);
                               toggleSelectedLayerFlag("visible");
                             }}
@@ -2007,6 +2053,7 @@ export const DesignerApp = () => {
                               onPointerDown={(event) => {
                                 event.preventDefault();
                                 event.stopPropagation();
+                                setSelectedLayerIds([layer.id]);
                                 setSelectedLayerId(layer.id);
                                 toggleSelectedLayerFlag("locked");
                               }}
@@ -2024,6 +2071,7 @@ export const DesignerApp = () => {
                               onPointerDown={(event) => {
                                 event.preventDefault();
                                 event.stopPropagation();
+                                setSelectedLayerIds([layer.id]);
                                 openLayerContextMenuFromElement(event.currentTarget, layer.id);
                               }}
                             >
@@ -2325,32 +2373,125 @@ export const DesignerApp = () => {
                 </div>
               </div>
               ) : null}
-              {isEditableProject && rightPanel === "edit" && selectedLayer ? (
-                <div className="selection-toolbar">
+              {isEditableProject && rightPanel === "edit" && (selectedLayer || multiSelectionActive) ? (
+                <div className={`selection-toolbar ${cropMode ? "selection-toolbar--crop" : ""}`}>
                   <div className="selection-toolbar__intro">
-                    <strong>{selectedLayer.name}</strong>
-                    <span>{selectedLayer.type}</span>
+                    <strong>{multiSelectionActive ? `${selectedLayerIds.length} items selected` : selectedLayer?.name}</strong>
+                    <span>
+                      {cropMode && selectedLayer?.type === "image"
+                        ? "crop mode"
+                        : multiSelectionActive
+                          ? "multi selection"
+                          : selectedLayer?.type}
+                    </span>
                   </div>
                   <div className="selection-toolbar__actions">
-                    <button type="button" className="button--ghost" onClick={duplicateSelectedLayer}>
-                      Duplicate
-                    </button>
-                    <button type="button" className="button--ghost" onClick={() => toggleSelectedLayerFlag("visible")}>
-                      {selectedLayer.visible ? "Hide" : "Show"}
-                    </button>
-                    <button type="button" className="button--ghost" onClick={() => toggleSelectedLayerFlag("locked")}>
-                      {selectedLayer.locked ? "Unlock" : "Lock"}
-                    </button>
-                    <button type="button" className="button--ghost" onClick={() => alignSelectedLayer("center")}>
-                      Center X
-                    </button>
-                    <button type="button" className="button--ghost" onClick={() => alignSelectedLayer("middle")}>
-                      Center Y
-                    </button>
-                    <button type="button" className="button--ghost" onClick={deleteSelectedLayer}>
+                    {cropMode && selectedLayer?.type === "image" ? (
+                      <>
+                        <button type="button" className="button--ghost" onClick={() => updateSelectedImageCrop("cropX", Number(selectedLayer.metadata.cropX ?? 0) - 24)}>
+                          Left
+                        </button>
+                        <button type="button" className="button--ghost" onClick={() => updateSelectedImageCrop("cropX", Number(selectedLayer.metadata.cropX ?? 0) + 24)}>
+                          Right
+                        </button>
+                        <button type="button" className="button--ghost" onClick={() => updateSelectedImageCrop("cropY", Number(selectedLayer.metadata.cropY ?? 0) - 24)}>
+                          Up
+                        </button>
+                        <button type="button" className="button--ghost" onClick={() => updateSelectedImageCrop("cropY", Number(selectedLayer.metadata.cropY ?? 0) + 24)}>
+                          Down
+                        </button>
+                        <button
+                          type="button"
+                          className="button--ghost"
+                          onClick={() =>
+                            updateSelectedLayer((layer) => ({
+                              ...layer,
+                              metadata: {
+                                ...layer.metadata,
+                                cropX: 0,
+                                cropY: 0
+                              }
+                            }))
+                          }
+                        >
+                          Reset
+                        </button>
+                        <button type="button" onClick={() => setCropMode(false)}>
+                          Done
+                        </button>
+                      </>
+                    ) : null}
+                    {!cropMode && !multiSelectionActive && selectedLayer ? (
+                      <>
+                        <button type="button" className="button--ghost" onClick={duplicateSelectedLayer}>
+                          Duplicate
+                        </button>
+                        <button type="button" className="button--ghost" onClick={() => toggleSelectedLayerFlag("visible")}>
+                          {selectedLayer.visible ? "Hide" : "Show"}
+                        </button>
+                        <button type="button" className="button--ghost" onClick={() => toggleSelectedLayerFlag("locked")}>
+                          {selectedLayer.locked ? "Unlock" : "Lock"}
+                        </button>
+                        <button type="button" className="button--ghost" onClick={() => moveSelectedLayer("forward")}>
+                          Bring forward
+                        </button>
+                        <button type="button" className="button--ghost" onClick={() => moveSelectedLayer("backward")}>
+                          Send backward
+                        </button>
+                        <button type="button" className="button--ghost" onClick={() => alignSelectedLayer("center")}>
+                          Center X
+                        </button>
+                        <button type="button" className="button--ghost" onClick={() => alignSelectedLayer("middle")}>
+                          Center Y
+                        </button>
+                        {selectedLayer.type === "image" ? (
+                          <button type="button" className="button--ghost" onClick={() => setCropMode(true)}>
+                            Crop image
+                          </button>
+                        ) : null}
+                        {canUngroupSelection ? (
+                          <button type="button" className="button--ghost" onClick={ungroupSelectedLayer}>
+                            Ungroup
+                          </button>
+                        ) : null}
+                      </>
+                    ) : null}
+                    {!cropMode && multiSelectionActive ? (
+                      <>
+                        <button type="button" className="button--ghost" onClick={groupSelectedLayers} disabled={!canGroupSelection}>
+                          Group
+                        </button>
+                        <button type="button" className="button--ghost" onClick={() => distributeSelectedLayers("horizontal")} disabled={!canDistributeSelection}>
+                          Distribute H
+                        </button>
+                        <button type="button" className="button--ghost" onClick={() => distributeSelectedLayers("vertical")} disabled={!canDistributeSelection}>
+                          Distribute V
+                        </button>
+                        <button type="button" className="button--ghost" onClick={() => moveSelectedLayer("forward")}>
+                          Bring forward
+                        </button>
+                        <button type="button" className="button--ghost" onClick={() => moveSelectedLayer("backward")}>
+                          Send backward
+                        </button>
+                      </>
+                    ) : null}
+                    {!cropMode ? (
+                    <button type="button" className="button--ghost" onClick={deleteSelectedLayers}>
                       Delete
                     </button>
+                    ) : null}
                   </div>
+                </div>
+              ) : null}
+              {cropMode && selectedLayer?.type === "image" ? (
+                <div className="crop-mode-banner">
+                  <div>
+                    <strong>Crop mode</strong>
+                    <p>Use the crop controls above to reposition the image inside its print frame.</p>
+                  </div>
+                  <button type="button" className="button--ghost" onClick={() => setCropMode(false)}>
+                    Exit crop mode
+                  </button>
                 </div>
               ) : null}
               <div className="artboard-shell">
@@ -2360,30 +2501,11 @@ export const DesignerApp = () => {
                     width: currentSurface.artboard.width * effectiveScale,
                     height: currentSurface.artboard.height * effectiveScale
                   }}
-                  onClick={() => setSelectedLayerId(null)}
+                  onClick={() => {
+                    setSelectedLayerIds([]);
+                    setSelectedLayerId(null);
+                  }}
                 >
-                {guidesVisible && bleedAreaBox ? (
-                  <div
-                    className="artboard__bleed"
-                    style={{
-                      left: bleedAreaBox.x * effectiveScale,
-                      top: bleedAreaBox.y * effectiveScale,
-                      width: bleedAreaBox.width * effectiveScale,
-                      height: bleedAreaBox.height * effectiveScale
-                    }}
-                  />
-                ) : null}
-                {guidesVisible && safeAreaBox ? (
-                  <div
-                    className="artboard__safe"
-                    style={{
-                      left: safeAreaBox.x * effectiveScale,
-                      top: safeAreaBox.y * effectiveScale,
-                      width: safeAreaBox.width * effectiveScale,
-                      height: safeAreaBox.height * effectiveScale
-                    }}
-                  />
-                ) : null}
                   {currentSurface.layers.length === 0 ? (
                     <div className="artboard__empty">
                       <strong>Start this side</strong>
@@ -2412,142 +2534,47 @@ export const DesignerApp = () => {
                       </div>
                     </div>
                   ) : null}
-                  {currentSurface.layers.map((layer) => {
-                    const stageAsset = assets.find((asset) => asset.id === String(layer.metadata.assetId ?? ""));
-                    const stageAssetPreview = stageAsset ? localAssetUrls[stageAsset.id] : undefined;
-                    const imageFitMode = String(layer.metadata.fitMode ?? "cover");
-                    const label =
-                      layer.type === "text"
-                        ? String(layer.metadata.text ?? layer.name)
-                        : layer.type === "shape"
-                          ? layer.name
-                          : layer.type === "qr"
-                            ? String(layer.metadata.value ?? "QR code")
-                            : layer.type === "barcode"
-                              ? String(layer.metadata.value ?? "Barcode")
-                          : stageAsset?.filename ?? layer.name;
-                    const isSelected = layer.id === selectedLayerId;
-                    return (
-                      <button
-                        key={layer.id}
-                        type="button"
-                        className={`stage-layer stage-layer--${layer.type} ${isSelected ? "stage-layer--selected" : ""}`}
-                        style={{
-                          left: layer.x * effectiveScale,
-                          top: layer.y * effectiveScale,
-                          width: layer.width * effectiveScale,
-                          height: layer.height * effectiveScale,
-                          opacity: layer.opacity,
-                          display: layer.visible ? "grid" : "none",
-                          transform: `rotate(${layer.rotation}deg)`,
-                          transformOrigin: "center center",
-                          background: layer.type === "shape" ? String(layer.metadata.fill ?? "#dbe8ff") : undefined,
-                          backgroundImage: layer.type === "image" && stageAssetPreview ? `url(${stageAssetPreview})` : undefined,
-                          backgroundPosition: layer.type === "image" && stageAssetPreview ? "center" : undefined,
-                          backgroundRepeat: layer.type === "image" && stageAssetPreview ? "no-repeat" : undefined,
-                          backgroundSize:
-                            layer.type === "image" && stageAssetPreview
-                              ? imageFitMode === "contain"
-                                ? "contain"
-                                : imageFitMode === "stretch"
-                                  ? "100% 100%"
-                                  : "cover"
-                              : undefined
-                        }}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          setSelectedLayerId(layer.id);
-                        }}
-                        onContextMenu={(event) => {
-                          event.stopPropagation();
-                          openLayerContextMenu(event, layer.id);
-                        }}
-                        onPointerDown={(event) => {
-                          if (project.status === "finalized" || layer.locked) {
-                            return;
-                          }
-                          event.stopPropagation();
-                          captureHistory();
-                          setSelectedLayerId(layer.id);
-                          setDragState({
-                            layerId: layer.id,
-                            surfaceIndex: selectedSurfaceIndex,
-                            startClientX: event.clientX,
-                            startClientY: event.clientY,
-                            originX: layer.x,
-                            originY: layer.y
-                          });
-                        }}
-                      >
-                        <span className="stage-layer__name">{layer.name}</span>
-                        <span
-                          className="stage-layer__label"
-                          style={
-                            layer.type === "text"
-                              ? {
-                                  color: String(layer.metadata.color ?? "#1b2430"),
-                                  fontSize: `${Math.max(10, Number(layer.metadata.fontSize ?? 18) * effectiveScale * 0.28)}px`,
-                                  fontWeight: Number(layer.metadata.fontWeight ?? 600),
-                                  textAlign: String(layer.metadata.textAlign ?? "left") as "left" | "center" | "right"
-                                }
-                              : undefined
-                          }
-                        >
-                          {label}
-                        </span>
-                        {isSelected && isEditableProject && !layer.locked ? (
-                          <>
-                            <span
-                              className="stage-layer__handle stage-layer__handle--rotate"
-                              onPointerDown={(event) => {
-                                event.preventDefault();
-                                event.stopPropagation();
-                                captureHistory();
-                                const bounds = event.currentTarget.parentElement?.getBoundingClientRect();
-                                if (!bounds) {
-                                  return;
-                                }
-                                setRotateState({
-                                  layerId: layer.id,
-                                  surfaceIndex: selectedSurfaceIndex,
-                                  centerClientX: bounds.left + bounds.width / 2,
-                                  centerClientY: bounds.top + bounds.height / 2,
-                                  originRotation: layer.rotation,
-                                  startAngle:
-                                    (Math.atan2(
-                                      event.clientY - (bounds.top + bounds.height / 2),
-                                      event.clientX - (bounds.left + bounds.width / 2)
-                                    ) *
-                                      180) /
-                                    Math.PI
-                                });
-                              }}
-                            />
-                            <span
-                              className="stage-layer__handle stage-layer__handle--resize"
-                              onPointerDown={(event) => {
-                                event.preventDefault();
-                                event.stopPropagation();
-                                captureHistory();
-                                setResizeState({
-                                  layerId: layer.id,
-                                  surfaceIndex: selectedSurfaceIndex,
-                                  startClientX: event.clientX,
-                                  startClientY: event.clientY,
-                                  originWidth: layer.width,
-                                  originHeight: layer.height,
-                                  layerX: layer.x,
-                                  layerY: layer.y
-                                });
-                              }}
-                            />
-                          </>
-                        ) : null}
-                      </button>
-                    );
-                  })}
+                  <FabricCanvasStage
+                    ref={stageRef}
+                    surface={currentSurface}
+                    assetUrls={localAssetUrls}
+                    zoom={zoom}
+                    maxWidth={stageViewportWidth}
+                    maxHeight={stageViewportHeight}
+                    gridEnabled={gridEnabled}
+                    guidesVisible={guidesVisible}
+                    isEditable={isEditableProject}
+                    selectedLayerIds={selectedLayerIds}
+                    onSelectionChange={(layerIds) => {
+                      setSelectedLayerIds(layerIds);
+                      setSelectedLayerId(layerIds[0] ?? null);
+                    }}
+                    onSurfaceChange={(nextSurface, historyLabel) => {
+                      captureHistory(historyLabel);
+                      updateCurrentSurface(() => nextSurface);
+                    }}
+                  />
                 </div>
               </div>
+              {isCompactViewport && rightPanel === "edit" && isEditableProject ? (
+                <div className="mobile-action-bar">
+                  <button type="button" onClick={addTextLayer}>
+                    Text
+                  </button>
+                  <button type="button" className="button--ghost" onClick={() => openFilePicker("insert")} disabled={saving}>
+                    Image
+                  </button>
+                  <button type="button" className="button--ghost" onClick={addShapeLayer}>
+                    Shape
+                  </button>
+                  <button type="button" className="button--ghost" onClick={() => setRightPanel("review")}>
+                    Review
+                  </button>
+                  <button type="button" className="button--ghost" onClick={() => setOverlay("menu")}>
+                    More
+                  </button>
+                </div>
+              ) : null}
             </div>
 
           </section>
@@ -2791,6 +2818,44 @@ export const DesignerApp = () => {
                               <option value="stretch">Stretch</option>
                             </select>
                           </label>
+                          <label>
+                            <span>Mask</span>
+                            <select
+                              value={String(selectedLayer.metadata.maskShape ?? "rect")}
+                              onChange={(event) =>
+                                updateSelectedLayer((layer) => ({
+                                  ...layer,
+                                  metadata: {
+                                    ...layer.metadata,
+                                    maskShape: event.target.value
+                                  }
+                                }))
+                              }
+                              disabled={project.status === "finalized" || selectedLayer.locked}
+                            >
+                              <option value="rect">Rectangle</option>
+                              <option value="rounded">Rounded</option>
+                              <option value="circle">Circle</option>
+                            </select>
+                          </label>
+                          <label>
+                            <span>Crop X</span>
+                            <input
+                              type="number"
+                              value={Number(selectedLayer.metadata.cropX ?? 0)}
+                              onChange={(event) => updateSelectedImageCrop("cropX", Number(event.target.value))}
+                              disabled={project.status === "finalized" || selectedLayer.locked}
+                            />
+                          </label>
+                          <label>
+                            <span>Crop Y</span>
+                            <input
+                              type="number"
+                              value={Number(selectedLayer.metadata.cropY ?? 0)}
+                              onChange={(event) => updateSelectedImageCrop("cropY", Number(event.target.value))}
+                              disabled={project.status === "finalized" || selectedLayer.locked}
+                            />
+                          </label>
                         </div>
                         <div className="stack-actions">
                           <button
@@ -2800,6 +2865,37 @@ export const DesignerApp = () => {
                             disabled={project.status === "finalized" || selectedLayer.locked || saving}
                           >
                             Replace image
+                          </button>
+                          <button
+                            type="button"
+                            className="button--ghost"
+                            onClick={() =>
+                              updateSelectedLayer((layer) => ({
+                                ...layer,
+                                metadata: {
+                                  ...layer.metadata,
+                                  cropX: 0,
+                                  cropY: 0
+                                }
+                              }))
+                            }
+                            disabled={project.status === "finalized" || selectedLayer.locked}
+                          >
+                            Reset crop
+                          </button>
+                        </div>
+                        <div className="stack-actions">
+                          <button type="button" className="button--ghost" onClick={() => updateSelectedImageCrop("cropX", Number(selectedLayer.metadata.cropX ?? 0) - 24)} disabled={project.status === "finalized" || selectedLayer.locked}>
+                            Crop left
+                          </button>
+                          <button type="button" className="button--ghost" onClick={() => updateSelectedImageCrop("cropX", Number(selectedLayer.metadata.cropX ?? 0) + 24)} disabled={project.status === "finalized" || selectedLayer.locked}>
+                            Crop right
+                          </button>
+                          <button type="button" className="button--ghost" onClick={() => updateSelectedImageCrop("cropY", Number(selectedLayer.metadata.cropY ?? 0) - 24)} disabled={project.status === "finalized" || selectedLayer.locked}>
+                            Crop up
+                          </button>
+                          <button type="button" className="button--ghost" onClick={() => updateSelectedImageCrop("cropY", Number(selectedLayer.metadata.cropY ?? 0) + 24)} disabled={project.status === "finalized" || selectedLayer.locked}>
+                            Crop down
                           </button>
                         </div>
                       </>

@@ -706,8 +706,35 @@ select {
   gap: 8px;
 }
 
+.selection-toolbar--crop {
+  border-color: #cddcf6;
+  background: #f6f9ff;
+}
+
 .selection-toolbar__actions .button--ghost:first-child {
   margin-left: 0;
+}
+
+.crop-mode-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  border: 1px solid #cddcf6;
+  border-radius: 10px;
+  background: #f6f9ff;
+}
+
+.crop-mode-banner strong {
+  display: block;
+  font-size: 0.95rem;
+}
+
+.crop-mode-banner p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.86rem;
 }
 
 .workspace-stage--primary .stage-wrapper {
@@ -728,14 +755,7 @@ select {
 }
 
 .artboard::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background:
-    linear-gradient(90deg, rgba(23, 32, 42, 0.03) 1px, transparent 1px),
-    linear-gradient(rgba(23, 32, 42, 0.03) 1px, transparent 1px);
-  background-size: 16px 16px;
-  pointer-events: none;
+  display: none;
 }
 
 .artboard--gridless::before {
@@ -767,6 +787,7 @@ select {
   border-radius: 6px;
   text-align: center;
   padding: 12px;
+  z-index: 2;
 }
 
 .artboard__empty strong {
@@ -784,6 +805,19 @@ select {
   flex-wrap: wrap;
   justify-content: center;
   gap: 8px;
+}
+
+.fabric-stage {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  z-index: 1;
+}
+
+.mobile-action-bar {
+  display: none;
 }
 
 .stage-layer {
@@ -1362,8 +1396,7 @@ button:disabled {
   }
 
   .stage-toolbar {
-    flex-direction: column;
-    align-items: stretch;
+    display: none;
   }
 
   .workspace-mode-switch {
@@ -1393,5 +1426,35 @@ button:disabled {
   .workspace-stage--primary .stage-wrapper {
     min-height: 320px;
     padding: 10px;
+  }
+
+  .selection-toolbar__actions {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+
+  .crop-mode-banner {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .mobile-action-bar {
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 8px;
+    padding: 10px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.96);
+    box-shadow: 0 -8px 24px rgba(23, 32, 42, 0.08);
+    backdrop-filter: blur(8px);
+  }
+
+  .mobile-action-bar button {
+    width: 100%;
   }
 }

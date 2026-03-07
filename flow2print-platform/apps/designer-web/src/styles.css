@@ -344,6 +344,17 @@ select {
   font-weight: 700;
 }
 
+.layer-row__grip {
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background:
+    radial-gradient(circle, #7f8a99 1.3px, transparent 1.4px) center/8px 8px,
+    #f7f9fb;
+  opacity: 0.72;
+}
+
 .layer-row__preview {
   width: 28px;
   height: 28px;
@@ -374,6 +385,13 @@ select {
   min-width: 0;
 }
 
+.layer-row__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: flex-end;
+}
+
 .layer-row__menu {
   border: 1px solid var(--line);
   background: #fff;
@@ -391,6 +409,11 @@ select {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+}
+
+.button--ghost-compact {
+  padding: 7px 10px;
+  font-size: 0.78rem;
 }
 
 .layer-row__drag {
@@ -603,6 +626,31 @@ select {
   background: #fff;
 }
 
+.canvas-startbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.canvas-startbar__copy {
+  display: grid;
+  gap: 3px;
+}
+
+.canvas-startbar__copy strong {
+  font-size: 0.95rem;
+}
+
+.canvas-startbar__copy span {
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
 .stage-toolbar__group {
   display: grid;
   gap: 6px;
@@ -781,12 +829,12 @@ select {
   inset: 18px;
   display: grid;
   place-items: center;
-  gap: 8px;
+  gap: 6px;
   color: var(--muted);
   border: 1px dashed var(--line-strong);
   border-radius: 6px;
   text-align: center;
-  padding: 12px;
+  padding: 18px;
   z-index: 2;
 }
 
@@ -798,13 +846,6 @@ select {
 .artboard__empty p {
   margin: 0;
   max-width: 340px;
-}
-
-.artboard__empty-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 8px;
 }
 
 .fabric-stage {
@@ -1293,6 +1334,11 @@ button:disabled {
   box-shadow: 0 16px 40px rgba(23, 32, 42, 0.2);
 }
 
+.workspace-overlay__content {
+  display: grid;
+  gap: 12px;
+}
+
 .workspace-menu-grid {
   display: grid;
   gap: 10px;
@@ -1395,6 +1441,11 @@ button:disabled {
     min-height: 360px;
   }
 
+  .canvas-startbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
   .stage-toolbar {
     display: none;
   }
@@ -1456,5 +1507,16 @@ button:disabled {
 
   .mobile-action-bar button {
     width: 100%;
+  }
+
+  .layer-row {
+    grid-template-columns: 24px 28px minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .layer-row__meta,
+  .layer-row__actions {
+    grid-column: 2 / -1;
+    justify-content: flex-start;
   }
 }

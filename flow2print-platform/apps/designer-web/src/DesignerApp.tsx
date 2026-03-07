@@ -238,7 +238,7 @@ export const DesignerApp = () => {
   const [templates, setTemplates] = useState<TemplateRecord[]>([]);
   const [recentProjects, setRecentProjects] = useState<ProjectListItem[]>([]);
   const [localAssetUrls, setLocalAssetUrls] = useState<Record<string, string>>({});
-  const [overlay, setOverlay] = useState<null | "templates" | "projects" | "menu">(null);
+  const [overlay, setOverlay] = useState<null | "templates" | "projects" | "menu" | "navigator" | "properties">(null);
   const [selectedStarterProductRef, setSelectedStarterProductRef] = useState<string>(starterProducts[0].productRef);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
   const [selectedSurfaceIndex, setSelectedSurfaceIndex] = useState(0);
@@ -422,6 +422,7 @@ export const DesignerApp = () => {
   const selectedLayer = currentSurface?.layers.find((layer) => layer.id === selectedLayerId) ?? null;
   const selectedLayers = currentSurface?.layers.filter((layer) => selectedLayerIds.includes(layer.id)) ?? [];
   const isCompactViewport = viewportSize.width <= 720;
+  const showNavigatorSidebar = !isCompactViewport && rightPanel === "edit";
   const multiSelectionActive = selectedLayerIds.length > 1;
   const canGroupSelection = multiSelectionActive && selectedLayers.every((layer) => layer.type !== "group");
   const canDistributeSelection = selectedLayerIds.length > 2;
@@ -436,6 +437,7 @@ export const DesignerApp = () => {
   );
   const currentTemplate = compatibleTemplates.find((template) => template.id === (project?.templateId ?? selectedTemplateId)) ?? null;
   const isEditableProject = project?.status === "draft";
+  const isBlankSurface = (currentSurface?.layers.length ?? 0) === 0;
 
   const documentSummary = useMemo(
     () => (draftDocument ? summarizeDocument(draftDocument) : null),
@@ -1334,6 +1336,25 @@ export const DesignerApp = () => {
     }));
   };
 
+  const selectLayerIds = (nextIds: string[]) => {
+    setSelectedLayerIds(nextIds);
+    setSelectedLayerId(nextIds[0] ?? null);
+  };
+
+  const handleLayerSelection = (layerId: string, additive = false) => {
+    if (!additive) {
+      selectLayerIds([layerId]);
+      return;
+    }
+    setSelectedLayerIds((currentIds) => {
+      const nextIds = currentIds.includes(layerId)
+        ? currentIds.filter((currentId) => currentId !== layerId)
+        : [...currentIds, layerId];
+      setSelectedLayerId(nextIds[0] ?? null);
+      return nextIds;
+    });
+  };
+
   const renameCurrentSurface = (label: string) => {
     if (!currentSurface) {
       return;
@@ -1782,6 +1803,306 @@ export const DesignerApp = () => {
     </AppShell>
   );
 
+  const renderNavigatorContent = () => {
+    if (!project || !draftDocument || !currentSurface || !documentSummary) {
+      return null;
+    }
+
+    return (
+      <>
+        <div className="section-heading section-heading--compact">
+          <div>
+            <h3>Document</h3>
+            <p>Pages, layers, assets, and session actions.</p>
+          </div>
+          <span className="badge badge--neutral">
+            {leftPanel === "layers"
+              ? `${currentSurface.layers.length} items`
+              : leftPanel === "assets"
+                ? `${availableImageAssets.length} files`
+                : `${historyPast.length} changes`}
+          </span>
+        </div>
+        <div className="panel-tabs panel-tabs--navigator">
+          <button
+            type="button"
+            className={`panel-tab ${leftPanel === "layers" ? "panel-tab--active" : ""}`}
+            onClick={() => setLeftPanel("layers")}
+          >
+            Layers
+          </button>
+          <button
+            type="button"
+            className={`panel-tab ${leftPanel === "assets" ? "panel-tab--active" : ""}`}
+            onClick={() => setLeftPanel("assets")}
+          >
+            Assets
+          </button>
+          <button
+            type="button"
+            className={`panel-tab ${leftPanel === "session" ? "panel-tab--active" : ""}`}
+            onClick={() => setLeftPanel("session")}
+          >
+            Session
+          </button>
+        </div>
+        {leftPanel === "layers" ? (
+          <>
+            <div className="surface-list">
+              <div className="surface-actions">
+                <label className="surface-label-editor">
+                  <span>Current side</span>
+                  <input
+                    value={currentSurface.label}
+                    onChange={(event) => renameCurrentSurface(event.target.value)}
+                    disabled={!isEditableProject}
+                  />
+                </label>
+                {isEditableProject ? (
+                  <div className="stack-actions">
+                    <button type="button" className="button--ghost" onClick={addSurface}>
+                      Add side
+                    </button>
+                    <button type="button" className="button--ghost" onClick={duplicateCurrentSurface}>
+                      Duplicate
+                    </button>
+                    <button
+                      type="button"
+                      className="button--ghost"
+                      onClick={removeCurrentSurface}
+                      disabled={draftDocument.surfaces.length <= 1}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+              {draftDocument.surfaces.map((surface, index) => (
+                <button
+                  key={surface.surfaceId}
+                  type="button"
+                  className={`surface-tab ${index === selectedSurfaceIndex ? "surface-tab--active" : ""}`}
+                  onClick={() => {
+                    setSelectedSurfaceIndex(index);
+                    setSelectedLayerIds(surface.layers[0]?.id ? [surface.layers[0].id] : []);
+                    setSelectedLayerId(surface.layers[0]?.id ?? null);
+                  }}
+                >
+                  <strong>{surface.label}</strong>
+                  <span>
+                    {surface.artboard.width} × {surface.artboard.height} mm
+                  </span>
+                </button>
+              ))}
+            </div>
+            <div className="list-section-header">
+              <div>
+                <strong>Layers</strong>
+                <span>Drag to change stacking order.</span>
+              </div>
+            </div>
+            <p className="panel-hint">
+              {isEditableProject
+                ? "Open actions on a layer to hide, lock, rename, or delete it."
+                : "This version is read-only because print files already exist."}
+            </p>
+            <div className="layer-list">
+              {currentSurface.layers.length === 0 ? <div className="empty-state">No items on this side yet.</div> : null}
+              {currentSurface.layers.map((layer, index) => (
+                <div
+                  key={layer.id}
+                  className={`layer-row ${layer.id === selectedLayerId ? "layer-row--active" : ""} ${
+                    draggingLayerId === layer.id ? "layer-row--dragging" : ""
+                  } ${dropTargetLayerId === layer.id ? "layer-row--drop-target" : ""}`}
+                  onClick={(event) => {
+                    handleLayerSelection(layer.id, event.shiftKey || event.metaKey || event.ctrlKey);
+                  }}
+                  onContextMenu={(event) => openLayerContextMenu(event, layer.id)}
+                  role="button"
+                  tabIndex={0}
+                  draggable={isEditableProject}
+                  onDragStart={(event) => {
+                    if (!isEditableProject) {
+                      return;
+                    }
+                    setDraggingLayerId(layer.id);
+                    setDropTargetLayerId(layer.id);
+                    event.dataTransfer.effectAllowed = "move";
+                    event.dataTransfer.setData("text/plain", layer.id);
+                  }}
+                  onDragOver={(event) => {
+                    if (!isEditableProject || !draggingLayerId) {
+                      return;
+                    }
+                    event.preventDefault();
+                    setDropTargetLayerId(layer.id);
+                  }}
+                  onDrop={(event) => {
+                    if (!isEditableProject) {
+                      return;
+                    }
+                    event.preventDefault();
+                    const fromLayerId = event.dataTransfer.getData("text/plain") || draggingLayerId;
+                    if (fromLayerId) {
+                      reorderLayer(fromLayerId, layer.id);
+                    }
+                    setDraggingLayerId(null);
+                    setDropTargetLayerId(null);
+                  }}
+                  onDragEnd={() => {
+                    setDraggingLayerId(null);
+                    setDropTargetLayerId(null);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      handleLayerSelection(layer.id);
+                    }
+                  }}
+                >
+                  {isEditableProject ? <span className="layer-row__grip" aria-hidden="true" /> : <span className="layer-row__index">{index + 1}</span>}
+                  <span
+                    className={`layer-row__preview layer-row__preview--${layer.type}`}
+                    style={layer.type === "shape" ? { background: String(layer.metadata.fill ?? "#dbe8ff") } : undefined}
+                  >
+                    {layer.type === "shape" ? null : layerPreviewText(layer)}
+                  </span>
+                  <span className="layer-row__content">
+                    <strong>{layer.name}</strong>
+                    <small>{layer.type}</small>
+                  </span>
+                  <div className="layer-row__meta">
+                    {!layer.visible ? <span className="badge badge--neutral">Hidden</span> : null}
+                    {layer.locked ? <span className="badge badge--neutral">Locked</span> : null}
+                  </div>
+                  <div className="layer-row__actions">
+                    {isEditableProject ? (
+                      <button
+                        type="button"
+                        className="button--ghost button--ghost-compact"
+                        onPointerDown={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          openLayerContextMenuFromElement(event.currentTarget, layer.id);
+                        }}
+                      >
+                        Actions
+                      </button>
+                    ) : (
+                      <span className="layer-row__state">{layer.visible ? "Shown" : "Hidden"}</span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        ) : null}
+        {leftPanel === "assets" ? (
+          <>
+            <div className="list-section-header">
+              <div>
+                <strong>Library</strong>
+                <span>All available images for this workspace.</span>
+              </div>
+            </div>
+            <div className="asset-list">
+              {availableImageAssets.length === 0 ? <div className="empty-state">No uploaded image files yet.</div> : null}
+              {availableImageAssets.map((asset) => (
+                <div className="asset-item" key={`library-${asset.id}`}>
+                  <div className="asset-item__content">
+                    <strong>{asset.filename}</strong>
+                    <span>{asset.mimeType}</span>
+                  </div>
+                  {isEditableProject ? (
+                    <button type="button" className="button--ghost" onClick={() => placeExistingAsset(asset)}>
+                      Use
+                    </button>
+                  ) : (
+                    <span className="badge badge--neutral">Available</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </>
+        ) : null}
+        {leftPanel === "session" ? (
+          <>
+            <div className="history-summary">
+              <div className="kv-item">
+                <strong>Version</strong>
+                <span>{project.activeVersionId.slice(-12)}</span>
+              </div>
+              <div className="kv-item">
+                <strong>Template</strong>
+                <span>{currentTemplate?.displayName ?? "Blank start"}</span>
+              </div>
+              <div className="kv-item">
+                <strong>Changes not saved</strong>
+                <span>{hasUnsavedChanges ? "Yes" : "No"}</span>
+              </div>
+              <div className="kv-item">
+                <strong>Undo available</strong>
+                <span>{historyPast.length}</span>
+              </div>
+            </div>
+            <div className="history-actions">
+              {isEditableProject ? (
+                <>
+                  <button type="button" className="button--ghost" onClick={undoChange} disabled={historyPast.length === 0}>
+                    Undo
+                  </button>
+                  <button type="button" className="button--ghost" onClick={redoChange} disabled={historyFuture.length === 0}>
+                    Redo
+                  </button>
+                  <button type="button" className="button--ghost" onClick={resetDraft} disabled={!hasUnsavedChanges || saving}>
+                    Discard
+                  </button>
+                  <button type="button" onClick={() => void saveDraftDocument()} disabled={!hasUnsavedChanges || saving}>
+                    {saving ? "Saving..." : "Save draft"}
+                  </button>
+                </>
+              ) : (
+                <button type="button" onClick={openExportPanel}>
+                  Open files
+                </button>
+              )}
+            </div>
+            <div className="list-section-header">
+              <div>
+                <strong>Recent changes</strong>
+                <span>The latest actions in this editing session.</span>
+              </div>
+            </div>
+            <div className="history-list">
+              {recentHistoryEntries.length === 0 ? (
+                <div className="empty-state">No local changes yet. Start with text, an image, or a template.</div>
+              ) : null}
+              {recentHistoryEntries.map((entry, index) => (
+                <div className="history-item" key={entry.id}>
+                  <span className="history-item__index">{recentHistoryEntries.length - index}</span>
+                  <div className="history-item__content">
+                    <strong>{entry.label}</strong>
+                    <span>{index === 0 ? "Most recent" : "Earlier in this session"}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+            {isEditableProject ? (
+              <div className="layout-guide-card">
+                <div className="kv-list">
+                  <div className="kv-item">
+                    <strong>Shortcuts</strong>
+                    <span>Cmd/Ctrl+S save, Cmd/Ctrl+Z undo, Delete removes, arrows nudge.</span>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+          </>
+        ) : null}
+      </>
+    );
+  };
+
   const renderWorkspace = () => {
     if (!project || !draftDocument || !currentSurface || !documentSummary) {
       return null;
@@ -1859,12 +2180,13 @@ export const DesignerApp = () => {
         </header>
 
         <section className="workspace-layout">
-          <aside className="workspace-sidebar workspace-sidebar--navigator">
+          {showNavigatorSidebar ? (
+            <aside className="workspace-sidebar workspace-sidebar--navigator">
             <article className="panel panel--tight panel--navigator">
               <div className="section-heading section-heading--compact">
                 <div>
-                  <h3>Navigator</h3>
-                  <p>Pages, layers, assets, and session tools.</p>
+                  <h3>Document</h3>
+                  <p>Pages, layers, assets, and session actions.</p>
                 </div>
                 <span className="badge badge--neutral">
                   {leftPanel === "layers"
@@ -1880,7 +2202,7 @@ export const DesignerApp = () => {
                   className={`panel-tab ${leftPanel === "layers" ? "panel-tab--active" : ""}`}
                   onClick={() => setLeftPanel("layers")}
                 >
-                  Pages & layers
+                  Layers
                 </button>
                 <button
                   type="button"
@@ -1949,12 +2271,12 @@ export const DesignerApp = () => {
                   <div className="list-section-header">
                     <div>
                       <strong>Layers</strong>
-                      <span>Top item appears in front on the canvas.</span>
+                      <span>Drag to change stacking order.</span>
                     </div>
                   </div>
                   <p className="panel-hint">
                     {isEditableProject
-                      ? "Drag to reorder. Use the eye and lock controls for quick changes."
+                      ? "Open actions on a layer to hide, lock, rename, or delete it."
                       : "This version is read-only because print files already exist."}
                   </p>
                   <div className="layer-list">
@@ -1965,9 +2287,8 @@ export const DesignerApp = () => {
                         className={`layer-row ${layer.id === selectedLayerId ? "layer-row--active" : ""} ${
                           draggingLayerId === layer.id ? "layer-row--dragging" : ""
                         } ${dropTargetLayerId === layer.id ? "layer-row--drop-target" : ""}`}
-                        onClick={() => {
-                          setSelectedLayerIds([layer.id]);
-                          setSelectedLayerId(layer.id);
+                        onClick={(event) => {
+                          handleLayerSelection(layer.id, event.shiftKey || event.metaKey || event.ctrlKey);
                         }}
                         onContextMenu={(event) => openLayerContextMenu(event, layer.id)}
                         role="button"
@@ -2008,12 +2329,11 @@ export const DesignerApp = () => {
                         onKeyDown={(event) => {
                           if (event.key === "Enter" || event.key === " ") {
                             event.preventDefault();
-                            setSelectedLayerIds([layer.id]);
-                            setSelectedLayerId(layer.id);
+                            handleLayerSelection(layer.id);
                           }
                         }}
                       >
-                        <span className="layer-row__index">{index + 1}</span>
+                        {isEditableProject ? <span className="layer-row__grip" aria-hidden="true" /> : <span className="layer-row__index">{index + 1}</span>}
                         <span
                           className={`layer-row__preview layer-row__preview--${layer.type}`}
                           style={layer.type === "shape" ? { background: String(layer.metadata.fill ?? "#dbe8ff") } : undefined}
@@ -2022,62 +2342,29 @@ export const DesignerApp = () => {
                         </span>
                         <span className="layer-row__content">
                           <strong>{layer.name}</strong>
-                          <small>
-                            {layer.type}
-                            {!layer.visible ? " · hidden" : ""}
-                            {layer.locked ? " · locked" : ""}
-                          </small>
+                          <small>{layer.type}</small>
                         </span>
+                        <div className="layer-row__meta">
+                          {!layer.visible ? <span className="badge badge--neutral">Hidden</span> : null}
+                          {layer.locked ? <span className="badge badge--neutral">Locked</span> : null}
+                        </div>
                         <div className="layer-row__actions">
-                          {isEditableProject ? <span className="layer-row__drag" aria-hidden="true">⋮⋮</span> : null}
-                          <button
-                            type="button"
-                            className={`layer-row__icon ${layer.visible ? "" : "layer-row__icon--muted"}`}
-                            aria-label={layer.visible ? `Hide ${layer.name}` : `Show ${layer.name}`}
-                            disabled={!isEditableProject}
-                            onPointerDown={(event) => {
-                              event.preventDefault();
-                              event.stopPropagation();
-                              setSelectedLayerIds([layer.id]);
-                              setSelectedLayerId(layer.id);
-                              toggleSelectedLayerFlag("visible");
-                            }}
-                          >
-                            {layer.visible ? "◉" : "○"}
-                          </button>
                           {isEditableProject ? (
                             <button
                               type="button"
-                              className={`layer-row__icon ${layer.locked ? "layer-row__icon--muted" : ""}`}
-                              aria-label={layer.locked ? `Unlock ${layer.name}` : `Lock ${layer.name}`}
+                              className="button--ghost button--ghost-compact"
                               onPointerDown={(event) => {
                                 event.preventDefault();
                                 event.stopPropagation();
-                                setSelectedLayerIds([layer.id]);
-                                setSelectedLayerId(layer.id);
-                                toggleSelectedLayerFlag("locked");
+                                handleLayerSelection(layer.id);
+                                openLayerContextMenuFromElement(event.currentTarget, layer.id);
                               }}
                             >
-                              {layer.locked ? "🔒" : "🔓"}
+                              Actions
                             </button>
                           ) : (
                             <span className="layer-row__status">{layer.visible ? "Shown" : "Hidden"}</span>
                           )}
-                          {isEditableProject ? (
-                            <button
-                              type="button"
-                              className="layer-row__menu"
-                              aria-label={`Open actions for ${layer.name}`}
-                              onPointerDown={(event) => {
-                                event.preventDefault();
-                                event.stopPropagation();
-                                setSelectedLayerIds([layer.id]);
-                                openLayerContextMenuFromElement(event.currentTarget, layer.id);
-                              }}
-                            >
-                              ⋯
-                            </button>
-                          ) : null}
                         </div>
                       </div>
                     ))}
@@ -2229,6 +2516,7 @@ export const DesignerApp = () => {
               />
             </article>
           </aside>
+          ) : null}
 
           <section className="workspace-stage workspace-stage--primary">
             <div className="stage-header stage-header--editor">
@@ -2264,7 +2552,7 @@ export const DesignerApp = () => {
             ) : null}
 
             <div className="stage-wrapper">
-              {rightPanel === "edit" ? (
+              {rightPanel === "edit" && !isBlankSurface ? (
                 <div className="stage-toolbar">
                   <div className="stage-toolbar__group">
                     <span className="stage-toolbar__label">Insert</span>
@@ -2338,7 +2626,37 @@ export const DesignerApp = () => {
                     </div>
                   </div>
                 </div>
-              ) : (
+              ) : null}
+              {rightPanel === "edit" && isBlankSurface ? (
+                <div className="canvas-startbar">
+                  <div className="canvas-startbar__copy">
+                    <strong>Start designing</strong>
+                    <span>Choose one starting action. You can add more content after the first item is on the canvas.</span>
+                  </div>
+                  <div className="stack-actions">
+                    <button type="button" onClick={addTextLayer} disabled={project.status === "finalized"}>
+                      Add text
+                    </button>
+                    <button
+                      type="button"
+                      className="button--ghost"
+                      onClick={() => openFilePicker("insert")}
+                      disabled={project.status === "finalized" || saving}
+                    >
+                      {saving ? "Uploading..." : "Upload image"}
+                    </button>
+                    <button
+                      type="button"
+                      className="button--ghost"
+                      onClick={() => setOverlay("templates")}
+                      disabled={templateBusy}
+                    >
+                      {templateBusy ? "Changing..." : "Use template"}
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+              {rightPanel !== "edit" ? (
                 <div className="readonly-strip">
                   <strong>{rightPanel === "review" ? "Review mode" : "Finish mode"}</strong>
                   <span>
@@ -2347,7 +2665,7 @@ export const DesignerApp = () => {
                       : "Open generated files or sync this project back to the shop."}
                   </span>
                 </div>
-              )}
+              ) : null}
               {rightPanel === "edit" ? (
               <div className="layout-guide-bar">
                 <div className="layout-guide-bar__intro">
@@ -2388,16 +2706,16 @@ export const DesignerApp = () => {
                   <div className="selection-toolbar__actions">
                     {cropMode && selectedLayer?.type === "image" ? (
                       <>
-                        <button type="button" className="button--ghost" onClick={() => updateSelectedImageCrop("cropX", Number(selectedLayer.metadata.cropX ?? 0) - 24)}>
+                        <button type="button" className="button--ghost" onClick={() => updateSelectedImageCrop("cropX", Number(selectedLayer.metadata.cropX ?? 0) - 2)}>
                           Left
                         </button>
-                        <button type="button" className="button--ghost" onClick={() => updateSelectedImageCrop("cropX", Number(selectedLayer.metadata.cropX ?? 0) + 24)}>
+                        <button type="button" className="button--ghost" onClick={() => updateSelectedImageCrop("cropX", Number(selectedLayer.metadata.cropX ?? 0) + 2)}>
                           Right
                         </button>
-                        <button type="button" className="button--ghost" onClick={() => updateSelectedImageCrop("cropY", Number(selectedLayer.metadata.cropY ?? 0) - 24)}>
+                        <button type="button" className="button--ghost" onClick={() => updateSelectedImageCrop("cropY", Number(selectedLayer.metadata.cropY ?? 0) - 2)}>
                           Up
                         </button>
-                        <button type="button" className="button--ghost" onClick={() => updateSelectedImageCrop("cropY", Number(selectedLayer.metadata.cropY ?? 0) + 24)}>
+                        <button type="button" className="button--ghost" onClick={() => updateSelectedImageCrop("cropY", Number(selectedLayer.metadata.cropY ?? 0) + 2)}>
                           Down
                         </button>
                         <button
@@ -2510,30 +2828,8 @@ export const DesignerApp = () => {
                     <div className="artboard__empty">
                       <strong>Start this side</strong>
                       <p>Add text, a shape, a QR code, a barcode, or an image. The blue dashed box is the safe area for important content.</p>
-                      <div className="artboard__empty-actions">
-                        <button type="button" onClick={addTextLayer} disabled={project.status === "finalized"}>
-                          Add text
-                        </button>
-                        <button type="button" className="button--ghost" onClick={addShapeLayer} disabled={project.status === "finalized"}>
-                          Add shape
-                        </button>
-                        <button type="button" className="button--ghost" onClick={addQrLayer} disabled={project.status === "finalized"}>
-                          Add QR code
-                        </button>
-                        <button type="button" className="button--ghost" onClick={addBarcodeLayer} disabled={project.status === "finalized"}>
-                          Add barcode
-                        </button>
-                        <button
-                          type="button"
-                          className="button--ghost"
-                          onClick={() => void createDemoAsset()}
-                          disabled={project.status === "finalized" || saving}
-                        >
-                          Add sample image
-                        </button>
-                      </div>
-                    </div>
-                  ) : null}
+                </div>
+              ) : null}
                   <FabricCanvasStage
                     ref={stageRef}
                     surface={currentSurface}
@@ -2541,14 +2837,13 @@ export const DesignerApp = () => {
                     zoom={zoom}
                     maxWidth={stageViewportWidth}
                     maxHeight={stageViewportHeight}
+                    cropMode={cropMode}
+                    cropLayerId={cropMode ? selectedLayer?.id ?? null : null}
                     gridEnabled={gridEnabled}
                     guidesVisible={guidesVisible}
                     isEditable={isEditableProject}
                     selectedLayerIds={selectedLayerIds}
-                    onSelectionChange={(layerIds) => {
-                      setSelectedLayerIds(layerIds);
-                      setSelectedLayerId(layerIds[0] ?? null);
-                    }}
+                    onSelectionChange={selectLayerIds}
                     onSurfaceChange={(nextSurface, historyLabel) => {
                       captureHistory(historyLabel);
                       updateCurrentSurface(() => nextSurface);
@@ -2564,8 +2859,8 @@ export const DesignerApp = () => {
                   <button type="button" className="button--ghost" onClick={() => openFilePicker("insert")} disabled={saving}>
                     Image
                   </button>
-                  <button type="button" className="button--ghost" onClick={addShapeLayer}>
-                    Shape
+                  <button type="button" className="button--ghost" onClick={() => setOverlay("navigator")}>
+                    Layers
                   </button>
                   <button type="button" className="button--ghost" onClick={() => setRightPanel("review")}>
                     Review
@@ -2885,16 +3180,16 @@ export const DesignerApp = () => {
                           </button>
                         </div>
                         <div className="stack-actions">
-                          <button type="button" className="button--ghost" onClick={() => updateSelectedImageCrop("cropX", Number(selectedLayer.metadata.cropX ?? 0) - 24)} disabled={project.status === "finalized" || selectedLayer.locked}>
+                          <button type="button" className="button--ghost" onClick={() => updateSelectedImageCrop("cropX", Number(selectedLayer.metadata.cropX ?? 0) - 2)} disabled={project.status === "finalized" || selectedLayer.locked}>
                             Crop left
                           </button>
-                          <button type="button" className="button--ghost" onClick={() => updateSelectedImageCrop("cropX", Number(selectedLayer.metadata.cropX ?? 0) + 24)} disabled={project.status === "finalized" || selectedLayer.locked}>
+                          <button type="button" className="button--ghost" onClick={() => updateSelectedImageCrop("cropX", Number(selectedLayer.metadata.cropX ?? 0) + 2)} disabled={project.status === "finalized" || selectedLayer.locked}>
                             Crop right
                           </button>
-                          <button type="button" className="button--ghost" onClick={() => updateSelectedImageCrop("cropY", Number(selectedLayer.metadata.cropY ?? 0) - 24)} disabled={project.status === "finalized" || selectedLayer.locked}>
+                          <button type="button" className="button--ghost" onClick={() => updateSelectedImageCrop("cropY", Number(selectedLayer.metadata.cropY ?? 0) - 2)} disabled={project.status === "finalized" || selectedLayer.locked}>
                             Crop up
                           </button>
-                          <button type="button" className="button--ghost" onClick={() => updateSelectedImageCrop("cropY", Number(selectedLayer.metadata.cropY ?? 0) + 24)} disabled={project.status === "finalized" || selectedLayer.locked}>
+                          <button type="button" className="button--ghost" onClick={() => updateSelectedImageCrop("cropY", Number(selectedLayer.metadata.cropY ?? 0) + 2)} disabled={project.status === "finalized" || selectedLayer.locked}>
                             Crop down
                           </button>
                         </div>
@@ -3080,22 +3375,12 @@ export const DesignerApp = () => {
                     </div>
                     {isEditableProject ? (
                       <div className="stack-actions">
-                        {currentSurface.layers.length === 0 ? (
-                          <button type="button" className="button--ghost" onClick={addTextLayer}>
-                            Add text
-                          </button>
-                        ) : null}
-                        {currentSurface.layers.length === 0 ? (
-                          <button type="button" className="button--ghost" onClick={() => void createDemoAsset()}>
-                            Add sample image
-                          </button>
-                        ) : null}
                         {selectedLayer && !selectedLayer.visible ? (
                           <button type="button" className="button--ghost" onClick={() => toggleSelectedLayerFlag("visible")}>
                             Show selected item
                           </button>
                         ) : null}
-                          <button type="button" className="button--ghost" onClick={() => setRightPanel("edit")}>
+                        <button type="button" className="button--ghost" onClick={() => setRightPanel("edit")}>
                           Back to editing
                         </button>
                       </div>
@@ -3159,11 +3444,11 @@ export const DesignerApp = () => {
                   </div>
                   <div className="section-heading">
                     <div>
-                      <h3>Hand-off</h3>
-                      <p>Project references for the next system step.</p>
+                      <h3>External references</h3>
+                      <p>Optional links for the next system step.</p>
                     </div>
                   </div>
-                  <div className="stack-actions">
+                  <div className="stack-actions stack-actions--secondary">
                     <button type="button" className="button--ghost" onClick={() => void linkCommerce("quote")} disabled={syncingCommerce}>
                       {syncingCommerce ? "Syncing..." : "Link quote"}
                     </button>
@@ -3196,6 +3481,13 @@ export const DesignerApp = () => {
             </article>
           </aside>
         </section>
+        <input
+          ref={fileInputRef}
+          className="visually-hidden"
+          type="file"
+          accept="image/*"
+          onChange={(event) => void handleFileSelection(event)}
+        />
       </div>
     );
   };
@@ -3216,6 +3508,8 @@ export const DesignerApp = () => {
                   ? "Choose a template"
                   : overlay === "projects"
                     ? "Open another project"
+                    : overlay === "navigator"
+                      ? "Document"
                     : "Workspace options"}
               </h3>
               <p>
@@ -3223,6 +3517,8 @@ export const DesignerApp = () => {
                   ? "Templates replace the current draft layout with a new starting structure."
                   : overlay === "projects"
                     ? "Jump to another saved project without leaving the designer shell."
+                    : overlay === "navigator"
+                      ? "Pages, layers, assets, and session actions."
                     : "Session actions live here so the canvas can stay focused on design work."}
               </p>
             </div>
@@ -3282,19 +3578,21 @@ export const DesignerApp = () => {
             </div>
           ) : null}
 
+          {overlay === "navigator" ? <div className="workspace-overlay__content">{renderNavigatorContent()}</div> : null}
+
           {overlay === "menu" ? (
             <div className="workspace-menu-grid">
               <article className="template-card">
                 <div>
                   <h3>Project</h3>
-                  <p>Open another project or close this workspace.</p>
+                  <p>Open another project or leave this workspace.</p>
                 </div>
                 <div className="product-actions">
                   <button type="button" className="button--ghost" onClick={() => setOverlay("projects")}>
                     Open project
                   </button>
                   <button type="button" className="button--ghost" onClick={closeWorkspace}>
-                    {isEmbedded ? "Done" : "Back"}
+                    {isEmbedded ? "Done" : "Close"}
                   </button>
                 </div>
               </article>
@@ -3307,23 +3605,11 @@ export const DesignerApp = () => {
                   <button type="button" className="button--ghost" onClick={() => setOverlay("templates")} disabled={templateBusy}>
                     {templateBusy ? "Changing..." : "Change template"}
                   </button>
-                  <button type="button" className="button--ghost" onClick={resetDraft} disabled={!hasUnsavedChanges || saving}>
-                    Discard changes
-                  </button>
-                </div>
-              </article>
-              <article className="template-card">
-                <div>
-                  <h3>Session</h3>
-                  <p>{historyPast.length} local changes, {hasUnsavedChanges ? "unsaved work pending" : "all changes saved"}.</p>
-                </div>
-                <div className="product-actions">
-                  <button type="button" className="button--ghost" onClick={undoChange} disabled={historyPast.length === 0 || !isEditableProject}>
-                    Undo
-                  </button>
-                  <button type="button" className="button--ghost" onClick={redoChange} disabled={historyFuture.length === 0 || !isEditableProject}>
-                    Redo
-                  </button>
+                  {isCompactViewport ? (
+                    <button type="button" className="button--ghost" onClick={() => setOverlay("navigator")}>
+                      Open document
+                    </button>
+                  ) : null}
                 </div>
               </article>
             </div>

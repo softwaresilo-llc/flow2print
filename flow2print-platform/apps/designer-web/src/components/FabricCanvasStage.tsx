@@ -22,6 +22,8 @@ interface FabricCanvasStageProps {
   zoom: number;
   maxWidth: number;
   maxHeight: number;
+  cropMode: boolean;
+  cropLayerId: string | null;
   gridEnabled: boolean;
   guidesVisible: boolean;
   isEditable: boolean;
@@ -54,6 +56,15 @@ const HISTORY_LABELS: Record<string, string> = {
 };
 
 const deepClone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+
+const getCenteredOffset = (frameSize: number, renderedSize: number) => (frameSize - renderedSize) / 2;
+const clampImageOffset = (offset: number, frameSize: number, renderedSize: number) => {
+  const centeredOffset = getCenteredOffset(frameSize, renderedSize);
+  if (renderedSize <= frameSize) {
+    return centeredOffset;
+  }
+  return Math.min(0, Math.max(frameSize - renderedSize, offset));
+};
 
 const createMask = (layer: DesignerLayer, width: number, height: number) => {
   const maskShape = String(layer.metadata.maskShape ?? "rect");
@@ -221,8 +232,6 @@ const createImageObject = async (layer: DesignerLayer, scale: number, assetUrls:
   const sourceWidth = image.width ?? renderWidth;
   const sourceHeight = image.height ?? renderHeight;
   const fitMode = String(layer.metadata.fitMode ?? "cover");
-  const cropX = Number(layer.metadata.cropX ?? 0);
-  const cropY = Number(layer.metadata.cropY ?? 0);
   const uniformScale =
     fitMode === "contain"
       ? Math.min(renderWidth / sourceWidth, renderHeight / sourceHeight)
@@ -235,19 +244,17 @@ const createImageObject = async (layer: DesignerLayer, scale: number, assetUrls:
     originX: "left",
     originY: "top",
     scaleX: uniformScale ?? renderWidth / sourceWidth,
-    scaleY: uniformScale ?? renderHeight / sourceHeight,
-    cropX,
-    cropY
+    scaleY: uniformScale ?? renderHeight / sourceHeight
   });
 
-  if (uniformScale) {
-    const renderedWidth = sourceWidth * uniformScale;
-    const renderedHeight = sourceHeight * uniformScale;
-    image.set({
-      left: (renderWidth - renderedWidth) / 2,
-      top: (renderHeight - renderedHeight) / 2
-    });
-  }
+  const renderedWidth = image.getScaledWidth();
+  const renderedHeight = image.getScaledHeight();
+  const cropOffsetX = Number(layer.metadata.cropX ?? 0) * scale;
+  const cropOffsetY = Number(layer.metadata.cropY ?? 0) * scale;
+  image.set({
+    left: clampImageOffset(getCenteredOffset(renderWidth, renderedWidth) + cropOffsetX, renderWidth, renderedWidth),
+    top: clampImageOffset(getCenteredOffset(renderHeight, renderedHeight) + cropOffsetY, renderHeight, renderedHeight)
+  });
 
   return new Group([image], {
     left,
@@ -380,12 +387,16 @@ const layerFromFabricObject = (object: FabricLayerObject, scale: number): Design
 
   if (data.layerType === "image" && object instanceof Group) {
     const image = object.getObjects().find((entry) => entry instanceof FabricImage) as FabricImage | undefined;
+    const renderedWidth = image?.getScaledWidth() ?? object.getScaledWidth();
+    const renderedHeight = image?.getScaledHeight() ?? object.getScaledHeight();
+    const centeredLeft = getCenteredOffset(object.getScaledWidth(), renderedWidth);
+    const centeredTop = getCenteredOffset(object.getScaledHeight(), renderedHeight);
     return {
       ...common,
       metadata: {
         ...common.metadata,
-        cropX: Number(image?.cropX ?? 0),
-        cropY: Number(image?.cropY ?? 0)
+        cropX: Number((((image?.left ?? centeredLeft) - centeredLeft) / scale).toFixed(2)),
+        cropY: Number((((image?.top ?? centeredTop) - centeredTop) / scale).toFixed(2))
       }
     };
   }
@@ -449,6 +460,8 @@ export const FabricCanvasStage = forwardRef<FabricCanvasStageHandle, FabricCanva
       zoom,
       maxWidth,
       maxHeight,
+      cropMode,
+      cropLayerId,
       gridEnabled,
       guidesVisible,
       isEditable,
@@ -459,7 +472,14 @@ export const FabricCanvasStage = forwardRef<FabricCanvasStageHandle, FabricCanva
   ) {
     const canvasElementRef = useRef<HTMLCanvasElement | null>(null);
     const canvasRef = useRef<Canvas | null>(null);
+    const objectMapRef = useRef<Map<string, FabricLayerObject>>(new Map());
     const syncingRef = useRef(false);
+    const cropDragRef = useRef<null | {
+      startX: number;
+      startY: number;
+      imageStartLeft: number;
+      imageStartTop: number;
+    }>(null);
     const scale = useMemo(
       () => Math.min(maxWidth / surface.artboard.width, maxHeight / surface.artboard.height, 5.5) * zoom,
       [maxHeight, maxWidth, surface.artboard.height, surface.artboard.width, zoom]
@@ -502,6 +522,7 @@ export const FabricCanvasStage = forwardRef<FabricCanvasStageHandle, FabricCanva
         preserveObjectStacking: true,
         selection: isEditable
       });
+      (canvas as Canvas & { selectionKey?: string[] }).selectionKey = ["shiftKey"];
       canvasRef.current = canvas;
 
       const syncSelection = () => {
@@ -521,12 +542,69 @@ export const FabricCanvasStage = forwardRef<FabricCanvasStageHandle, FabricCanva
         const targetType = event.transform?.action ?? "modified";
         onSurfaceChange(surfaceFromCanvas(canvas, surface, scale), HISTORY_LABELS[targetType] ?? "Edit selection");
       });
+      canvas.on("mouse:down", (event) => {
+        if (!cropMode || !cropLayerId) {
+          return;
+        }
+        const target = event.target as FabricLayerObject | undefined;
+        if (!target || target.data?.layerId !== cropLayerId || target.data?.layerType !== "image") {
+          return;
+        }
+        const imageGroup = target as Group;
+        const image = imageGroup.getObjects().find((entry) => entry instanceof FabricImage) as FabricImage | undefined;
+        if (!image) {
+          return;
+        }
+        const pointer = canvas.getScenePoint(event.e);
+        cropDragRef.current = {
+          startX: pointer.x,
+          startY: pointer.y,
+          imageStartLeft: image.left ?? 0,
+          imageStartTop: image.top ?? 0
+        };
+      });
+      canvas.on("mouse:move", (event) => {
+        if (!cropDragRef.current || !cropMode || !cropLayerId) {
+          return;
+        }
+        const imageGroup = objectMapRef.current.get(cropLayerId);
+        if (!(imageGroup instanceof Group)) {
+          return;
+        }
+        const image = imageGroup.getObjects().find((entry) => entry instanceof FabricImage) as FabricImage | undefined;
+        if (!image) {
+          return;
+        }
+        const pointer = canvas.getScenePoint(event.e);
+        const deltaX = pointer.x - cropDragRef.current.startX;
+        const deltaY = pointer.y - cropDragRef.current.startY;
+        image.set({
+          left: clampImageOffset(
+            cropDragRef.current.imageStartLeft + deltaX,
+            imageGroup.getScaledWidth(),
+            image.getScaledWidth()
+          ),
+          top: clampImageOffset(
+            cropDragRef.current.imageStartTop + deltaY,
+            imageGroup.getScaledHeight(),
+            image.getScaledHeight()
+          )
+        });
+        canvas.requestRenderAll();
+      });
+      canvas.on("mouse:up", () => {
+        if (!cropDragRef.current) {
+          return;
+        }
+        cropDragRef.current = null;
+        onSurfaceChange(surfaceFromCanvas(canvas, surface, scale), "Crop image");
+      });
 
       return () => {
         canvas.dispose();
         canvasRef.current = null;
       };
-    }, [isEditable, onSelectionChange, onSurfaceChange, scale, surface]);
+    }, [cropLayerId, cropMode, isEditable, onSelectionChange, onSurfaceChange, scale, surface]);
 
     useEffect(() => {
       const canvas = canvasRef.current;
@@ -603,16 +681,30 @@ export const FabricCanvasStage = forwardRef<FabricCanvasStageHandle, FabricCanva
           );
         }
 
-        const layerObjects = await Promise.all(surface.layers.map((layer) => createFabricObject(layer, scale, assetUrls)));
-        if (cancelled) {
-          return;
+      const layerObjects = await Promise.all(surface.layers.map((layer) => createFabricObject(layer, scale, assetUrls)));
+      if (cancelled) {
+        return;
+      }
+      const nextMap = new Map<string, FabricLayerObject>();
+      for (const object of layerObjects) {
+        const layerObject = object as FabricLayerObject;
+        const isCropTarget = cropMode && cropLayerId === layerObject.data?.layerId && layerObject.data?.layerType === "image";
+        layerObject.lockMovementX = !isEditable || Boolean(layerObject.data?.locked) || isCropTarget;
+        layerObject.lockMovementY = !isEditable || Boolean(layerObject.data?.locked) || isCropTarget;
+        layerObject.lockRotation = !isEditable || Boolean(layerObject.data?.locked) || isCropTarget;
+        layerObject.hasControls = isEditable && !Boolean(layerObject.data?.locked) && !isCropTarget;
+        if (isCropTarget) {
+          layerObject.hoverCursor = "move";
         }
-        for (const object of layerObjects) {
-          canvas.add(object);
+        canvas.add(object);
+        if (layerObject.data?.layerId) {
+          nextMap.set(layerObject.data.layerId, layerObject);
         }
+      }
+      objectMapRef.current = nextMap;
 
-        const selectedObjects = canvas
-          .getObjects()
+      const selectedObjects = canvas
+        .getObjects()
           .filter((object) => selectedLayerIds.includes((object as FabricLayerObject).data?.layerId ?? ""));
         if (selectedObjects.length === 1) {
           canvas.setActiveObject(selectedObjects[0]);
@@ -630,7 +722,7 @@ export const FabricCanvasStage = forwardRef<FabricCanvasStageHandle, FabricCanva
       return () => {
         cancelled = true;
       };
-    }, [assetUrls, gridEnabled, guidesVisible, isEditable, scale, selectedLayerIds, surface]);
+    }, [assetUrls, cropLayerId, cropMode, gridEnabled, guidesVisible, isEditable, scale, selectedLayerIds, surface]);
 
     return <canvas ref={canvasElementRef} className="fabric-stage" />;
   }

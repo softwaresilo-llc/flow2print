@@ -5,10 +5,18 @@ import { summarizeDocument } from "@flow2print/editor-engine";
 import { AppShell } from "@flow2print/ui-kit";
 
 const trimTrailingSlash = (value: string) => value.replace(/\/+$/, "");
-const API_BASE = import.meta.env.VITE_FLOW2PRINT_API_URL ? trimTrailingSlash(import.meta.env.VITE_FLOW2PRINT_API_URL) : "";
+const browserOrigin =
+  typeof window !== "undefined" ? `${window.location.protocol}//${window.location.hostname}` : "";
+const API_BASE = import.meta.env.VITE_FLOW2PRINT_API_URL
+  ? trimTrailingSlash(import.meta.env.VITE_FLOW2PRINT_API_URL)
+  : browserOrigin
+    ? `${browserOrigin}:3000`
+    : "";
 const DESIGNER_BASE = import.meta.env.VITE_FLOW2PRINT_DESIGNER_URL
   ? trimTrailingSlash(import.meta.env.VITE_FLOW2PRINT_DESIGNER_URL)
-  : "";
+  : browserOrigin
+    ? `${browserOrigin}:5173`
+    : "";
 const CONNECTOR_RETURN_URL = import.meta.env.VITE_FLOW2PRINT_RETURN_URL ?? "/flow2print/return";
 const resolveApiUrl = (path: string) => (/^https?:\/\//i.test(path) ? path : `${API_BASE}${path}`);
 const resolveDesignerUrl = (path: string) => (/^https?:\/\//i.test(path) ? path : `${DESIGNER_BASE}${path}`);

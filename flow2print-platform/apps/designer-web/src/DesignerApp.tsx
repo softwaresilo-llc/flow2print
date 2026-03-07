@@ -4,8 +4,12 @@ import type { Flow2PrintDocument } from "@flow2print/design-document";
 import { summarizeDocument } from "@flow2print/editor-engine";
 
 import { DesignerLauncher } from "./components/DesignerLauncher";
+import { DesignerEditPanel } from "./components/DesignerEditPanel";
+import { DesignerFinishPanel } from "./components/DesignerFinishPanel";
+import { DesignerInspectorPanel } from "./components/DesignerInspectorPanel";
 import { DesignerNavigatorPanel } from "./components/DesignerNavigatorPanel";
 import { DesignerOverlay } from "./components/DesignerOverlay";
+import { DesignerReviewPanel } from "./components/DesignerReviewPanel";
 import { DesignerWorkspaceTopbar } from "./components/DesignerWorkspaceTopbar";
 import { FabricCanvasStage, type FabricCanvasStageHandle } from "./components/FabricCanvasStage";
 import { LayerContextMenu } from "./components/LayerContextMenu";
@@ -2429,610 +2433,60 @@ export const DesignerApp = () => {
           </section>
 
           <aside className="workspace-sidebar workspace-sidebar--inspector">
-            <article className="panel panel--tight">
-              <div className="section-heading section-heading--compact">
-                <div>
-                  <h3>{rightPanel === "edit" ? "Properties" : rightPanel === "review" ? "Review" : "Files"}</h3>
-                  <p>
-                    {rightPanel === "edit"
-                      ? "Edit the selected item or inspect its placement."
-                      : rightPanel === "review"
-                        ? "Resolve issues and confirm print readiness."
-                        : "Open generated files or send this project to the next step."}
-                  </p>
-                </div>
-              </div>
-              {rightPanel === "edit" && !selectedLayer ? (
-                <div className="inspector-empty">
-                  <h4>Nothing selected</h4>
-                  <p>Select an item on the canvas to edit its content and placement here.</p>
-                  <div className="inspector-empty__steps">
-                    <span>Add content from the Insert toolbar.</span>
-                    <span>Select it on the canvas.</span>
-                    <span>Adjust content, size, and appearance here.</span>
-                  </div>
-                </div>
-              ) : null}
-              {rightPanel === "edit" && selectedLayer && isEditableProject ? (
-                <div className="inspector-form">
-                  <div className="inspector-summary">
-                    <div>
-                      <p className="workspace-label">Selected</p>
-                      <h4>{selectedLayer.name}</h4>
-                    </div>
-                    <div className="badge-row">
-                      <span className="badge badge--neutral">{selectedLayer.type}</span>
-                      <span className="badge badge--neutral">{selectedLayer.visible ? "visible" : "hidden"}</span>
-                      <span className="badge badge--neutral">{selectedLayer.locked ? "locked" : "editable"}</span>
-                      {isEditableProject ? (
-                        <button
-                          type="button"
-                          className="button--ghost inspector-summary__menu"
-                          onPointerDown={(event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            openLayerContextMenuFromElement(event.currentTarget, selectedLayer.id);
-                          }}
-                        >
-                          More actions
-                        </button>
-                      ) : null}
-                    </div>
-                  </div>
-                  {!selectedLayer.visible ? (
-                    <div className="workspace-alert workspace-alert--subtle">
-                      <div>
-                        <strong>This item is hidden.</strong>
-                        <p>Hidden items do not appear in previews or print files until you show them again.</p>
-                      </div>
-                    </div>
-                  ) : null}
-                  <div className="inspector-section">
-                    <div className="inspector-section__header">
-                      <h4>Content</h4>
-                      <p>What this item shows.</p>
-                    </div>
-                    <label>
-                      <span>Name</span>
-                      <input
-                        value={selectedLayer.name}
-                        onChange={(event) =>
-                          updateSelectedLayer((layer) => ({
-                            ...layer,
-                            name: event.target.value
-                          }))
-                        }
-                        disabled={project.status === "finalized" || selectedLayer.locked}
-                      />
-                    </label>
-                    {selectedLayer.type === "text" ? (
-                      <>
-                        <label>
-                          <span>Text</span>
-                          <textarea
-                            value={String(selectedLayer.metadata.text ?? "")}
-                            onChange={(event) =>
-                              updateSelectedLayer((layer) => ({
-                                ...layer,
-                                metadata: {
-                                  ...layer.metadata,
-                                  text: event.target.value
-                                }
-                              }))
-                            }
-                            disabled={project.status === "finalized" || selectedLayer.locked}
-                          />
-                        </label>
-                        <div className="inspector-grid">
-                          <label>
-                            <span>Font size</span>
-                            <input
-                              type="number"
-                              value={Number(selectedLayer.metadata.fontSize ?? 18)}
-                              onChange={(event) =>
-                                updateSelectedLayer((layer) => ({
-                                  ...layer,
-                                  metadata: {
-                                    ...layer.metadata,
-                                    fontSize: clamp(Number(event.target.value) || 18, 10, 96)
-                                  }
-                                }))
-                              }
-                              disabled={project.status === "finalized" || selectedLayer.locked}
-                            />
-                          </label>
-                          <label>
-                            <span>Weight</span>
-                            <select
-                              value={String(selectedLayer.metadata.fontWeight ?? "600")}
-                              onChange={(event) =>
-                                updateSelectedLayer((layer) => ({
-                                  ...layer,
-                                  metadata: {
-                                    ...layer.metadata,
-                                    fontWeight: event.target.value
-                                  }
-                                }))
-                              }
-                              disabled={project.status === "finalized" || selectedLayer.locked}
-                            >
-                              <option value="400">Regular</option>
-                              <option value="600">Semibold</option>
-                              <option value="700">Bold</option>
-                            </select>
-                          </label>
-                          <label>
-                            <span>Color</span>
-                            <input
-                              type="color"
-                              value={String(selectedLayer.metadata.color ?? "#1b2430")}
-                              onChange={(event) =>
-                                updateSelectedLayer((layer) => ({
-                                  ...layer,
-                                  metadata: {
-                                    ...layer.metadata,
-                                    color: event.target.value
-                                  }
-                                }))
-                              }
-                              disabled={project.status === "finalized" || selectedLayer.locked}
-                            />
-                          </label>
-                          <label>
-                            <span>Alignment</span>
-                            <select
-                              value={String(selectedLayer.metadata.textAlign ?? "left")}
-                              onChange={(event) =>
-                                updateSelectedLayer((layer) => ({
-                                  ...layer,
-                                  metadata: {
-                                    ...layer.metadata,
-                                    textAlign: event.target.value
-                                  }
-                                }))
-                              }
-                              disabled={project.status === "finalized" || selectedLayer.locked}
-                            >
-                              <option value="left">Left</option>
-                              <option value="center">Center</option>
-                              <option value="right">Right</option>
-                            </select>
-                          </label>
-                        </div>
-                      </>
-                    ) : null}
-                    {selectedLayer.type === "shape" ? (
-                      <label>
-                        <span>Color</span>
-                        <input
-                          type="color"
-                          value={String(selectedLayer.metadata.fill ?? "#dbe8ff")}
-                          onChange={(event) =>
-                            updateSelectedLayer((layer) => ({
-                              ...layer,
-                              metadata: {
-                                ...layer.metadata,
-                                fill: event.target.value
-                              }
-                            }))
-                          }
-                          disabled={project.status === "finalized" || selectedLayer.locked}
-                        />
-                      </label>
-                    ) : null}
-                    {selectedLayer.type === "qr" || selectedLayer.type === "barcode" ? (
-                      <label>
-                        <span>{selectedLayer.type === "qr" ? "Link or value" : "Code value"}</span>
-                        <input
-                          value={String(selectedLayer.metadata.value ?? "")}
-                          onChange={(event) =>
-                            updateSelectedLayer((layer) => ({
-                              ...layer,
-                              metadata: {
-                                ...layer.metadata,
-                                value: event.target.value
-                              }
-                            }))
-                          }
-                          disabled={project.status === "finalized" || selectedLayer.locked}
-                        />
-                      </label>
-                    ) : null}
-                    {selectedLayer.type === "image" ? (
-                      <>
-                        <div className="kv-list">
-                          <div className="kv-item">
-                            <strong>Source file</strong>
-                            <span>{layerAsset?.filename ?? "none"}</span>
-                          </div>
-                        </div>
-                        <div className="inspector-grid">
-                          <label>
-                            <span>Fit</span>
-                            <select
-                              value={String(selectedLayer.metadata.fitMode ?? "cover")}
-                              onChange={(event) =>
-                                updateSelectedLayer((layer) => ({
-                                  ...layer,
-                                  metadata: {
-                                    ...layer.metadata,
-                                    fitMode: event.target.value
-                                  }
-                                }))
-                              }
-                              disabled={project.status === "finalized" || selectedLayer.locked}
-                            >
-                              <option value="cover">Cover</option>
-                              <option value="contain">Contain</option>
-                              <option value="stretch">Stretch</option>
-                            </select>
-                          </label>
-                          <label>
-                            <span>Mask</span>
-                            <select
-                              value={String(selectedLayer.metadata.maskShape ?? "rect")}
-                              onChange={(event) =>
-                                updateSelectedLayer((layer) => ({
-                                  ...layer,
-                                  metadata: {
-                                    ...layer.metadata,
-                                    maskShape: event.target.value
-                                  }
-                                }))
-                              }
-                              disabled={project.status === "finalized" || selectedLayer.locked}
-                            >
-                              <option value="rect">Rectangle</option>
-                              <option value="rounded">Rounded</option>
-                              <option value="circle">Circle</option>
-                            </select>
-                          </label>
-                          <label>
-                            <span>Crop X</span>
-                            <input
-                              type="number"
-                              value={Number(selectedLayer.metadata.cropX ?? 0)}
-                              onChange={(event) => updateSelectedImageCrop("cropX", Number(event.target.value))}
-                              disabled={project.status === "finalized" || selectedLayer.locked}
-                            />
-                          </label>
-                          <label>
-                            <span>Crop Y</span>
-                            <input
-                              type="number"
-                              value={Number(selectedLayer.metadata.cropY ?? 0)}
-                              onChange={(event) => updateSelectedImageCrop("cropY", Number(event.target.value))}
-                              disabled={project.status === "finalized" || selectedLayer.locked}
-                            />
-                          </label>
-                        </div>
-                        <div className="stack-actions">
-                          <button
-                            type="button"
-                            className="button--ghost"
-                            onClick={() => openFilePicker("replace")}
-                            disabled={project.status === "finalized" || selectedLayer.locked || saving}
-                          >
-                            Replace image
-                          </button>
-                          <button
-                            type="button"
-                            className="button--ghost"
-                            onClick={() =>
-                              updateSelectedLayer((layer) => ({
-                                ...layer,
-                                metadata: {
-                                  ...layer.metadata,
-                                  cropX: 0,
-                                  cropY: 0
-                                }
-                              }))
-                            }
-                            disabled={project.status === "finalized" || selectedLayer.locked}
-                          >
-                            Reset crop
-                          </button>
-                        </div>
-                        <div className="stack-actions">
-                          <button type="button" className="button--ghost" onClick={() => updateSelectedImageCrop("cropX", Number(selectedLayer.metadata.cropX ?? 0) - 2)} disabled={project.status === "finalized" || selectedLayer.locked}>
-                            Crop left
-                          </button>
-                          <button type="button" className="button--ghost" onClick={() => updateSelectedImageCrop("cropX", Number(selectedLayer.metadata.cropX ?? 0) + 2)} disabled={project.status === "finalized" || selectedLayer.locked}>
-                            Crop right
-                          </button>
-                          <button type="button" className="button--ghost" onClick={() => updateSelectedImageCrop("cropY", Number(selectedLayer.metadata.cropY ?? 0) - 2)} disabled={project.status === "finalized" || selectedLayer.locked}>
-                            Crop up
-                          </button>
-                          <button type="button" className="button--ghost" onClick={() => updateSelectedImageCrop("cropY", Number(selectedLayer.metadata.cropY ?? 0) + 2)} disabled={project.status === "finalized" || selectedLayer.locked}>
-                            Crop down
-                          </button>
-                        </div>
-                      </>
-                    ) : null}
-                  </div>
-                  <div className="inspector-section">
-                    <div className="inspector-section__header">
-                      <h4>Size and position</h4>
-                      <p>Measured in millimeters.</p>
-                    </div>
-                    <div className="inspector-grid">
-                      <label>
-                        <span>Left</span>
-                        <input
-                          type="number"
-                          value={selectedLayer.x}
-                          onChange={(event) => updateLayerNumericField("x", event.target.value)}
-                          disabled={project.status === "finalized" || selectedLayer.locked}
-                        />
-                      </label>
-                      <label>
-                        <span>Top</span>
-                        <input
-                          type="number"
-                          value={selectedLayer.y}
-                          onChange={(event) => updateLayerNumericField("y", event.target.value)}
-                          disabled={project.status === "finalized" || selectedLayer.locked}
-                        />
-                      </label>
-                      <label>
-                        <span>Width</span>
-                        <input
-                          type="number"
-                          value={selectedLayer.width}
-                          onChange={(event) => updateLayerNumericField("width", event.target.value)}
-                          disabled={project.status === "finalized" || selectedLayer.locked}
-                        />
-                      </label>
-                      <label>
-                        <span>Height</span>
-                        <input
-                          type="number"
-                          value={selectedLayer.height}
-                          onChange={(event) => updateLayerNumericField("height", event.target.value)}
-                          disabled={project.status === "finalized" || selectedLayer.locked}
-                        />
-                      </label>
-                    </div>
-                  </div>
-                  <div className="inspector-section">
-                    <div className="inspector-section__header">
-                      <h4>Appearance</h4>
-                      <p>Visibility and transparency.</p>
-                    </div>
-                    <div className="inspector-grid">
-                      <label>
-                        <span>Rotation</span>
-                        <input
-                          type="number"
-                          value={selectedLayer.rotation}
-                          onChange={(event) => updateLayerNumericField("rotation", event.target.value)}
-                          disabled={project.status === "finalized" || selectedLayer.locked}
-                        />
-                      </label>
-                      <label>
-                        <span>Opacity %</span>
-                        <input
-                          type="number"
-                          value={Math.round(selectedLayer.opacity * 100)}
-                          onChange={(event) =>
-                            updateLayerNumericField("opacity", String(Number(event.target.value) / 100))
-                          }
-                          disabled={project.status === "finalized" || selectedLayer.locked}
-                        />
-                      </label>
-                    </div>
-                    <div className="kv-list">
-                      <div className="kv-item">
-                        <strong>Visibility</strong>
-                        <span>{selectedLayer.visible ? "Visible on canvas and in print files" : "Hidden from canvas and print files"}</span>
-                      </div>
-                      <div className="kv-item">
-                        <strong>Editing</strong>
-                        <span>{selectedLayer.locked ? "Locked against accidental changes" : "Unlocked for editing"}</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ) : null}
-              {rightPanel === "edit" && selectedLayer && !isEditableProject ? (
-                <div className="inspector-form">
-                  <div className="inspector-summary">
-                    <div>
-                      <p className="workspace-label">Selected</p>
-                      <h4>{selectedLayer.name}</h4>
-                    </div>
-                    <div className="badge-row">
-                      <span className="badge badge--neutral">{selectedLayer.type}</span>
-                      <span className="badge badge--neutral">{selectedLayer.visible ? "visible" : "hidden"}</span>
-                    </div>
-                  </div>
-                  <div className="workspace-alert workspace-alert--subtle">
-                    <div>
-                      <strong>Read-only preview.</strong>
-                      <p>This version is locked because print files already exist. Open another project to keep editing.</p>
-                    </div>
-                  </div>
-                  <div className="inspector-section">
-                    <div className="inspector-section__header">
-                      <h4>Content</h4>
-                      <p>What this item contains.</p>
-                    </div>
-                    <div className="kv-list">
-                      <div className="kv-item">
-                        <strong>Name</strong>
-                        <span>{selectedLayer.name}</span>
-                      </div>
-                      {selectedLayer.type === "text" ? (
-                        <div className="kv-item">
-                          <strong>Text</strong>
-                          <span>{String(selectedLayer.metadata.text ?? "") || "n/a"}</span>
-                        </div>
-                      ) : null}
-                      {selectedLayer.type === "image" ? (
-                        <div className="kv-item">
-                          <strong>Source file</strong>
-                          <span>{layerAsset?.filename ?? "none"}</span>
-                        </div>
-                      ) : null}
-                      {selectedLayer.type === "qr" || selectedLayer.type === "barcode" ? (
-                        <div className="kv-item">
-                          <strong>{selectedLayer.type === "qr" ? "Value" : "Code"}</strong>
-                          <span>{String(selectedLayer.metadata.value ?? "") || "n/a"}</span>
-                        </div>
-                      ) : null}
-                    </div>
-                  </div>
-                  <div className="inspector-section">
-                    <div className="inspector-section__header">
-                      <h4>Placement</h4>
-                      <p>Measured in millimeters.</p>
-                    </div>
-                    <div className="kv-list">
-                      <div className="kv-item">
-                        <strong>Left</strong>
-                        <span>{selectedLayer.x}</span>
-                      </div>
-                      <div className="kv-item">
-                        <strong>Top</strong>
-                        <span>{selectedLayer.y}</span>
-                      </div>
-                      <div className="kv-item">
-                        <strong>Width</strong>
-                        <span>{selectedLayer.width}</span>
-                      </div>
-                      <div className="kv-item">
-                        <strong>Height</strong>
-                        <span>{selectedLayer.height}</span>
-                      </div>
-                      <div className="kv-item">
-                        <strong>Rotation</strong>
-                        <span>{selectedLayer.rotation}</span>
-                      </div>
-                      <div className="kv-item">
-                        <strong>Opacity</strong>
-                        <span>{Math.round(selectedLayer.opacity * 100)}%</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+            <DesignerInspectorPanel
+              title={rightPanel === "edit" ? "Properties" : rightPanel === "review" ? "Review" : "Files"}
+              description={
+                rightPanel === "edit"
+                  ? "Edit the selected item or inspect its placement."
+                  : rightPanel === "review"
+                    ? "Resolve issues and confirm print readiness."
+                    : "Open generated files or send this project to the next step."
+              }
+            >
+              {rightPanel === "edit" ? (
+                <DesignerEditPanel
+                  selectedLayer={selectedLayer}
+                  isEditableProject={isEditableProject}
+                  layerAssetFilename={layerAsset?.filename ?? null}
+                  saving={saving}
+                  onUpdateSelectedLayer={updateSelectedLayer}
+                  onUpdateLayerNumericField={updateLayerNumericField}
+                  onUpdateSelectedImageCrop={updateSelectedImageCrop}
+                  onOpenReplaceImage={() => openFilePicker("replace")}
+                  onOpenLayerActions={(element) => openLayerContextMenuFromElement(element, selectedLayer?.id ?? "")}
+                />
               ) : null}
               {rightPanel === "review" ? (
-                <>
-                  <div className={`review-summary ${hasBlockingIssues ? "review-summary--warning" : "review-summary--pass"}`}>
-                    <div>
-                      <strong>{hasBlockingIssues ? "This side still needs attention." : "This side is ready for print files."}</strong>
-                      <p>
-                        {hasBlockingIssues
-                          ? "Resolve the blocking items below. You can jump back to editing at any time."
-                          : "Only warnings or informational notes remain on this side."}
-                      </p>
-                    </div>
-                    {isEditableProject ? (
-                      <div className="stack-actions">
-                        {selectedLayer && !selectedLayer.visible ? (
-                          <button type="button" className="button--ghost" onClick={() => toggleSelectedLayerFlag("visible")}>
-                            Show selected item
-                          </button>
-                        ) : null}
-                        <button type="button" className="button--ghost" onClick={() => setRightPanel("edit")}>
-                          Back to editing
-                        </button>
-                      </div>
-                    ) : null}
-                  </div>
-                  <div className="section-heading">
-                    <div>
-                      <h3>Live checks</h3>
-                      <p>Quick layout hints before you create print files.</p>
-                    </div>
-                    <span className="badge badge--neutral">{liveChecks.length}</span>
-                  </div>
-                  <div className="issue-list">
-                    {liveChecks.length === 0 ? <div className="empty-state">No immediate layout issues on this side.</div> : null}
-                    {liveChecks.map((issue, index) => (
-                      <div className="issue-item" key={`${issue.severity}-${index}`}>
-                        <strong className={`issue-severity issue-severity--${issue.severity}`}>{issue.severity}</strong>
-                        <span>{issue.message}</span>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="section-heading">
-                    <div>
-                      <h3>Preflight</h3>
-                      <p>Latest print-file validation.</p>
-                    </div>
-                    <span className={badgeTone(project.preflightReport?.status ?? null)}>
-                      {project.preflightReport?.status ?? "not run"}
-                    </span>
-                  </div>
-                  <div className="issue-list">
-                    {project.preflightReport?.issues.length ? null : <div className="empty-state">No print-file validation has been generated yet.</div>}
-                    {project.preflightReport?.issues.map((issue) => (
-                      <div className="issue-item" key={issue.id}>
-                        <strong>{issue.issueCode}</strong>
-                        <span>{issue.message}</span>
-                      </div>
-                    ))}
-                  </div>
-                </>
+                <DesignerReviewPanel
+                  hasBlockingIssues={hasBlockingIssues}
+                  isEditableProject={isEditableProject}
+                  canShowSelectedItem={Boolean(selectedLayer && !selectedLayer.visible)}
+                  liveChecks={liveChecks}
+                  preflightStatusClassName={badgeTone(project.preflightReport?.status ?? null)}
+                  preflightStatusLabel={project.preflightReport?.status ?? "not run"}
+                  preflightIssues={project.preflightReport?.issues ?? []}
+                  onShowSelectedItem={() => toggleSelectedLayerFlag("visible")}
+                  onBackToEditing={() => setRightPanel("edit")}
+                />
               ) : null}
               {rightPanel === "finish" ? (
-                <>
-                  <div className="section-heading">
-                    <div>
-                      <h3>Files</h3>
-                      <p>Generated after you create print files.</p>
-                    </div>
-                    <span className="badge badge--neutral">{project.artifacts.length}</span>
-                  </div>
-                  <div className="artifact-list">
-                    {project.artifacts.length === 0 ? <div className="empty-state">No files yet. Create print files to generate them.</div> : null}
-                    {project.artifacts.map((artifact) => (
-                      <div className="artifact-item" key={artifact.id}>
-                        <strong>{humanizeStatus(artifact.artifactType)}</strong>
-                        <a className="button-link button-link--ghost" href={resolveApiUrl(artifact.href)} target="_blank" rel="noreferrer">
-                          Open
-                        </a>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="section-heading">
-                    <div>
-                      <h3>External references</h3>
-                      <p>Optional links for the next system step.</p>
-                    </div>
-                  </div>
-                  <div className="stack-actions stack-actions--secondary">
-                    <button type="button" className="button--ghost" onClick={() => void linkCommerce("quote")} disabled={syncingCommerce}>
-                      {syncingCommerce ? "Syncing..." : "Link quote"}
-                    </button>
-                    <button type="button" className="button--ghost" onClick={() => void linkCommerce("order")} disabled={syncingCommerce}>
-                      {syncingCommerce ? "Syncing..." : "Link order"}
-                    </button>
-                  </div>
-                  <div className="kv-list">
-                    <div className="kv-item">
-                      <strong>Status</strong>
-                      <span className={badgeTone(project.commerceLink?.state ?? null)}>
-                        {project.commerceLink ? humanizeStatus(project.commerceLink.state) : "not linked"}
-                      </span>
-                    </div>
-                    <div className="kv-item">
-                      <strong>Quote ref</strong>
-                      <span>{project.commerceLink?.externalQuoteRef ?? "n/a"}</span>
-                    </div>
-                    <div className="kv-item">
-                      <strong>Order ref</strong>
-                      <span>{project.commerceLink?.externalOrderRef ?? "n/a"}</span>
-                    </div>
-                    <div className="kv-item">
-                      <strong>Session</strong>
-                      <span>{launchSession ? launchSession.customerEmail : "direct load"}</span>
-                    </div>
-                  </div>
-                </>
+                <DesignerFinishPanel
+                  artifacts={project.artifacts.map((artifact) => ({
+                    id: artifact.id,
+                    label: humanizeStatus(artifact.artifactType),
+                    href: resolveApiUrl(artifact.href)
+                  }))}
+                  syncingCommerce={syncingCommerce}
+                  commerceStatusClassName={badgeTone(project.commerceLink?.state ?? null)}
+                  commerceStatusLabel={project.commerceLink ? humanizeStatus(project.commerceLink.state) : "not linked"}
+                  quoteRef={project.commerceLink?.externalQuoteRef ?? "n/a"}
+                  orderRef={project.commerceLink?.externalOrderRef ?? "n/a"}
+                  sessionLabel={launchSession ? launchSession.customerEmail : "direct load"}
+                  onLinkQuote={() => void linkCommerce("quote")}
+                  onLinkOrder={() => void linkCommerce("order")}
+                />
               ) : null}
-            </article>
+            </DesignerInspectorPanel>
           </aside>
         </section>
         <input

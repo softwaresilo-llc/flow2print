@@ -50,6 +50,7 @@ import {
 type AdminRecord = Record<string, unknown> & { id: string };
 type BlueprintOption = { id: string; displayName: string };
 type TemplateOption = { id: string; displayName: string; blueprintId: string };
+type RoleOption = { id: string; label: string };
 type CrudResourceName = Exclude<AdminResourceName, "overview" | "account">;
 
 const { Title, Paragraph, Text } = Typography;
@@ -71,7 +72,9 @@ const statusColors: Record<string, string> = {
   fail: "red",
   pending: "gold",
   used: "blue",
-  password_reset: "blue"
+  password_reset: "blue",
+  true: "blue",
+  false: "default"
 };
 
 const endpointMap: Record<AdminResourceName, string> = {
@@ -80,6 +83,7 @@ const endpointMap: Record<AdminResourceName, string> = {
   blueprints: "blueprints",
   assets: "assets",
   users: "users",
+  roles: "roles",
   "api-tokens": "api-tokens",
   "mail-log": "mail-log",
   "email-templates": "email-templates",
@@ -105,7 +109,8 @@ const formatValue = (
   field: ResourceField,
   value: unknown,
   blueprintMap: Record<string, string>,
-  templateMap: Record<string, string>
+  templateMap: Record<string, string>,
+  roleMap: Record<string, string>
 ) => {
   if (field.key === "blueprintId" && typeof value === "string") {
     return blueprintMap[value] ?? value;
@@ -115,13 +120,18 @@ const formatValue = (
     return templateMap[value] ?? value;
   }
 
+  if (field.key === "role" && typeof value === "string") {
+    return roleMap[value] ?? value;
+  }
+
   if (field.type === "date") {
     return formatDate(value);
   }
 
   if (field.type === "status") {
-    const text = typeof value === "string" ? value.replaceAll("_", " ") : "—";
-    const color = typeof value === "string" ? statusColors[value] ?? "default" : "default";
+    const normalized = typeof value === "boolean" ? String(value) : typeof value === "string" ? value : "";
+    const text = normalized ? normalized.replaceAll("_", " ") : "—";
+    const color = normalized ? statusColors[normalized] ?? "default" : "default";
     return <Tag color={color}>{text}</Tag>;
   }
 
@@ -154,9 +164,12 @@ const formatValue = (
   return String(value);
 };
 
-const getOptionLabel = (field: ResourceField, value: unknown, blueprints: BlueprintOption[]) => {
+const getOptionLabel = (field: ResourceField, value: unknown, blueprints: BlueprintOption[], roles: RoleOption[]) => {
   if (field.optionSource === "blueprints") {
     return blueprints.find((item) => item.id === value)?.displayName ?? value;
+  }
+  if (field.optionSource === "roles") {
+    return roles.find((item) => item.id === value)?.label ?? value;
   }
   return field.options?.find((option) => option.value === value)?.label ?? value;
 };
@@ -164,14 +177,41 @@ const getOptionLabel = (field: ResourceField, value: unknown, blueprints: Bluepr
 const buildResourceUrl = (resource: AdminResourceName, id?: string) =>
   id ? `/v1/${endpointMap[resource]}/${id}` : `/v1/${endpointMap[resource]}`;
 
+const requestJsonWithTimeout = async <T,>(input: string, init?: RequestInit, timeoutMs = 1500) => {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await requestJson<T>(input, {
+      ...init,
+      signal: controller.signal
+    });
+  } finally {
+    window.clearTimeout(timer);
+  }
+};
+
+const resolveProjectDesignerHref = (record: AdminRecord) => {
+  const projectId = String(record.id ?? "");
+  if (!projectId) {
+    return resolveDesignerUrl("/designer");
+  }
+
+  return resolveDesignerUrl(`/designer/project/${projectId}`);
+};
+
 const loadList = async (resource: AdminResourceName) => {
   const payload = await requestJson<{ docs: AdminRecord[] }>(buildResourceUrl(resource));
   return payload.docs ?? [];
 };
 
 const loadOne = async (resource: AdminResourceName, id: string) => {
-  if (resource === "projects") {
-    return requestJson<AdminRecord>(buildResourceUrl(resource, id));
+  try {
+    return await requestJsonWithTimeout<AdminRecord>(buildResourceUrl(resource, id));
+  } catch (error) {
+    if (resource === "settings") {
+      throw error;
+    }
   }
 
   const docs = await loadList(resource);
@@ -246,6 +286,36 @@ const useTemplateOptions = (blueprintId?: string | null) => {
   );
 };
 
+const useRoleOptions = () => {
+  const [roles, setRoles] = useState<RoleOption[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    loadList("roles")
+      .then((records) => {
+        if (active) {
+          setRoles(
+            records.map((record) => ({
+              id: String(record.id),
+              label: String(record.label ?? record.id)
+            }))
+          );
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setRoles([]);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  return roles;
+};
+
 const useEmailPreview = (templateId: string | null) => {
   const [preview, setPreview] = useState<{ subject: string; html: string; previewText: string } | null>(null);
 
@@ -281,18 +351,22 @@ const useEmailTemplateDraftPreview = ({
   subject,
   bodyHtml,
   previewText,
+  wrapperHeaderHtml,
+  wrapperFooterHtml,
   settings
 }: {
   enabled: boolean;
   subject?: string;
   bodyHtml?: string;
   previewText?: string;
+  wrapperHeaderHtml?: string;
+  wrapperFooterHtml?: string;
   settings?: Record<string, unknown>;
 }) => {
   const [preview, setPreview] = useState<{ subject: string; html: string; previewText: string } | null>(null);
 
   useEffect(() => {
-    if (!enabled || !subject || !bodyHtml || !previewText) {
+    if (!enabled || !subject || !bodyHtml || !previewText || !wrapperHeaderHtml || !wrapperFooterHtml) {
       setPreview(null);
       return;
     }
@@ -305,6 +379,8 @@ const useEmailTemplateDraftPreview = ({
           subject,
           bodyHtml,
           previewText,
+          wrapperHeaderHtml,
+          wrapperFooterHtml,
           settings
         })
       })
@@ -324,7 +400,7 @@ const useEmailTemplateDraftPreview = ({
       active = false;
       window.clearTimeout(timeout);
     };
-  }, [enabled, subject, bodyHtml, previewText, JSON.stringify(settings ?? {})]);
+  }, [enabled, subject, bodyHtml, previewText, wrapperHeaderHtml, wrapperFooterHtml, JSON.stringify(settings ?? {})]);
 
   return preview;
 };
@@ -364,6 +440,7 @@ const buildColumns = (
   resource: AdminResourceConfig,
   blueprintMap: Record<string, string>,
   templateMap: Record<string, string>,
+  roleMap: Record<string, string>,
   onDelete: (record: AdminRecord) => Promise<void>,
   deletingId: string | null
 ): TableColumnsType<AdminRecord> => {
@@ -373,15 +450,16 @@ const buildColumns = (
     title: field.label,
     dataIndex: field.key,
     key: field.key,
-    render: (_: unknown, record: AdminRecord) => formatValue(field, record[field.key], blueprintMap, templateMap)
+    render: (_: unknown, record: AdminRecord) => formatValue(field, record[field.key], blueprintMap, templateMap, roleMap)
   }));
 
   columns.push({
     title: "",
     key: "actions",
-    width: 220,
+    width: 320,
+    fixed: "right",
     render: (_: unknown, record: AdminRecord) => (
-      <Space size="small">
+      <div className="admin-table-actions">
         {resource.showPath ? (
           <Link to={`${resource.listPath.replace(/\/$/, "")}/show/${record.id}`}>
             <Button icon={<EyeOutlined />} size="small">
@@ -397,9 +475,9 @@ const buildColumns = (
           </Link>
         ) : null}
         {resource.name === "projects" ? (
-          <a href={resolveDesignerUrl(`/designer/project/${record.id}`)} target="_blank" rel="noreferrer">
-            <Button size="small">Designer</Button>
-          </a>
+          <Button size="small" href={resolveProjectDesignerHref(record)} target="_blank" rel="noreferrer">
+            Open designer
+          </Button>
         ) : null}
         {resource.canDelete ? (
           <Popconfirm
@@ -411,7 +489,7 @@ const buildColumns = (
             <Button danger icon={<DeleteOutlined />} size="small" />
           </Popconfirm>
         ) : null}
-      </Space>
+      </div>
     )
   });
 
@@ -421,7 +499,8 @@ const buildColumns = (
 const renderInput = (
   field: ResourceField,
   blueprintOptions: BlueprintOption[],
-  templateOptions: TemplateOption[] = []
+  templateOptions: TemplateOption[] = [],
+  roleOptions: RoleOption[] = []
 ) => {
   switch (field.type) {
     case "textarea":
@@ -447,7 +526,12 @@ const renderInput = (
                       value: entry.id
                     }))
                   ]
-              : field.options
+                : field.optionSource === "roles"
+                  ? roleOptions.map((entry) => ({
+                      label: entry.label,
+                      value: entry.id
+                    }))
+                : field.options
           }
         />
       );
@@ -465,7 +549,11 @@ const defaultFormValuesByResource: Partial<Record<CrudResourceName, Record<strin
     status: "draft"
   },
   "email-templates": {
-    kind: "password_reset"
+    kind: "password_reset",
+    wrapperHeaderHtml:
+      '<div style="padding:20px 24px;background:#184a8c;color:#ffffff;font:700 18px/1.2 Arial,sans-serif;">{{logoText}} · {{brandName}}</div>',
+    wrapperFooterHtml:
+      '<div style="padding:18px 24px;border-top:1px solid #d8e0ea;color:#5e6b7c;font:400 13px/1.5 Arial,sans-serif;">Need help? Contact <a href="mailto:{{supportEmail}}">{{supportEmail}}</a>.<br/>{{companyName}}<br/>{{companyAddress}}</div>'
   },
   blueprints: {
     kind: "flat"
@@ -480,10 +568,13 @@ const defaultFormValuesByResource: Partial<Record<CrudResourceName, Record<strin
   }
 };
 
+const EMPTY_FORM_VALUES: Record<string, unknown> = {};
+
 const ResourceListPage = ({ resourceName }: { resourceName: CrudResourceName }) => {
   const resource = resourceRouteLookup[resourceName as keyof typeof resourceRouteLookup];
   const blueprints = useBlueprintOptions();
   const templates = useTemplateOptions();
+  const roles = useRoleOptions();
   const [loading, setLoading] = useState(true);
   const [records, setRecords] = useState<AdminRecord[]>([]);
   const [search, setSearch] = useState("");
@@ -516,6 +607,10 @@ const ResourceListPage = ({ resourceName }: { resourceName: CrudResourceName }) 
     acc[item.id] = item.displayName;
     return acc;
   }, {});
+  const roleMap = roles.reduce<Record<string, string>>((acc, item) => {
+    acc[item.id] = item.label;
+    return acc;
+  }, {});
   const filterFields = resource.fields.filter(
     (field: ResourceField) =>
       field.list &&
@@ -527,6 +622,9 @@ const ResourceListPage = ({ resourceName }: { resourceName: CrudResourceName }) 
     }
     if (field.optionSource === "templates") {
       return templates.map((entry) => ({ label: entry.displayName, value: entry.id }));
+    }
+    if (field.optionSource === "roles") {
+      return roles.map((entry) => ({ label: entry.label, value: entry.id }));
     }
     return field.options ?? [];
   };
@@ -663,6 +761,7 @@ const ResourceListPage = ({ resourceName }: { resourceName: CrudResourceName }) 
         </div>
 
         <Table
+          className="admin-table"
           rowKey="id"
           loading={loading}
           rowSelection={
@@ -673,8 +772,9 @@ const ResourceListPage = ({ resourceName }: { resourceName: CrudResourceName }) 
                 }
               : undefined
           }
-          columns={buildColumns(resource, blueprintMap, templateMap, handleDelete, deletingId)}
+          columns={buildColumns(resource, blueprintMap, templateMap, roleMap, handleDelete, deletingId)}
           dataSource={filteredRecords}
+          scroll={{ x: "max-content" }}
           locale={{
             emptyText: (
               <Empty
@@ -882,22 +982,30 @@ const ResourceFormPage = ({
   const params = useParams<{ id: string }>();
   const blueprints = useBlueprintOptions();
   const templates = useTemplateOptions();
+  const roles = useRoleOptions();
   const selectedBlueprintId = Form.useWatch("blueprintId", form) as string | undefined;
   const templateOptions = useTemplateOptions(selectedBlueprintId);
   const previewSubject = Form.useWatch("subject", form) as string | undefined;
   const previewBodyHtml = Form.useWatch("bodyHtml", form) as string | undefined;
   const previewTextValue = Form.useWatch("previewText", form) as string | undefined;
+  const previewWrapperHeaderHtml = Form.useWatch("wrapperHeaderHtml", form) as string | undefined;
+  const previewWrapperFooterHtml = Form.useWatch("wrapperFooterHtml", form) as string | undefined;
   const [loading, setLoading] = useState(mode === "edit");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [createdToken, setCreatedToken] = useState<string | null>(null);
   const { message } = App.useApp();
-  const initialValues = defaultFormValuesByResource[resourceName] ?? {};
+  const initialValues = useMemo(
+    () => defaultFormValuesByResource[resourceName] ?? EMPTY_FORM_VALUES,
+    [resourceName]
+  );
   const emailDraftPreview = useEmailTemplateDraftPreview({
     enabled: resourceName === "email-templates",
     subject: previewSubject,
     bodyHtml: previewBodyHtml,
-    previewText: previewTextValue
+    previewText: previewTextValue,
+    wrapperHeaderHtml: previewWrapperHeaderHtml,
+    wrapperFooterHtml: previewWrapperFooterHtml
   });
 
   useEffect(() => {
@@ -1047,7 +1155,7 @@ const ResourceFormPage = ({
                           rules={field.required ? [{ required: true, message: `${field.label} is required.` }] : undefined}
                           extra={field.extra}
                         >
-                          {renderInput(field, blueprints, templateOptions)}
+                          {renderInput(field, blueprints, templateOptions, roles)}
                         </Form.Item>
                       </Col>
                     ))}
@@ -1067,7 +1175,7 @@ const ResourceFormPage = ({
           <Col xs={24} xl={10}>
             <Card className="admin-card" title="Live preview">
               <Paragraph type="secondary">
-                Review the real rendered HTML with the current header and footer wrapper before saving.
+                Review the real rendered HTML with this template's header, body, and footer before saving.
               </Paragraph>
               {emailDraftPreview ? (
                 <Space direction="vertical" size="middle" style={{ width: "100%" }}>
@@ -1137,13 +1245,13 @@ const ProjectShowExtras = ({ record }: { record: AdminRecord }) => {
                 <Descriptions.Item label="Blueprint">{String(record.blueprintId ?? "—")}</Descriptions.Item>
                 <Descriptions.Item label="Starting template">{templateLabel}</Descriptions.Item>
                 <Descriptions.Item label="Status">
-                  {formatValue({ key: "status", label: "Status", type: "status" }, record.status, {}, {})}
+                  {formatValue({ key: "status", label: "Status", type: "status" }, record.status, {}, {}, {})}
                 </Descriptions.Item>
               </Descriptions>
               <Space wrap>
-                <a href={resolveDesignerUrl(`/designer/project/${record.id}`)} target="_blank" rel="noreferrer">
-                  <Button type="primary">Open designer</Button>
-                </a>
+                <Button type="primary" href={resolveProjectDesignerHref(record)} target="_blank" rel="noreferrer">
+                  Open designer
+                </Button>
                 {artifacts[0]?.href ? (
                   <a href={resolveApiUrl(String(artifacts[0].href))} target="_blank" rel="noreferrer">
                     <Button>Open latest file</Button>
@@ -1158,7 +1266,7 @@ const ProjectShowExtras = ({ record }: { record: AdminRecord }) => {
             <Descriptions size="small" column={1}>
               <Descriptions.Item label="Preflight">
                 {preflightReport
-                  ? formatValue({ key: "status", label: "Status", type: "status" }, preflightReport.status, {}, {})
+                  ? formatValue({ key: "status", label: "Status", type: "status" }, preflightReport.status, {}, {}, {})
                   : "Not run"}
               </Descriptions.Item>
               <Descriptions.Item label="Issues">{preflightIssues.length}</Descriptions.Item>
@@ -1212,7 +1320,7 @@ const ProjectShowExtras = ({ record }: { record: AdminRecord }) => {
                 {preflightIssues.map((issue) => (
                   <div key={String(issue.id)} className="admin-issue-row">
                     <div>
-                      {formatValue({ key: "severity", label: "Severity", type: "status" }, issue.severity, {}, {})}
+                      {formatValue({ key: "severity", label: "Severity", type: "status" }, issue.severity, {}, {}, {})}
                     </div>
                     <div className="admin-issue-copy">
                       <div className="admin-issue-copy__title">{String(issue.issueCode ?? "issue")}</div>
@@ -1275,6 +1383,7 @@ const ResourceShowPage = ({ resourceName }: { resourceName: CrudResourceName }) 
   const navigate = useNavigate();
   const blueprints = useBlueprintOptions();
   const templates = useTemplateOptions();
+  const roles = useRoleOptions();
   const [record, setRecord] = useState<AdminRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1316,6 +1425,10 @@ const ResourceShowPage = ({ resourceName }: { resourceName: CrudResourceName }) 
     acc[item.id] = item.displayName;
     return acc;
   }, {});
+  const roleMap = roles.reduce<Record<string, string>>((acc, item) => {
+    acc[item.id] = item.label;
+    return acc;
+  }, {});
 
   return (
     <div className="admin-page">
@@ -1354,7 +1467,7 @@ const ResourceShowPage = ({ resourceName }: { resourceName: CrudResourceName }) 
                 .filter((field: ResourceField) => field.show)
                 .map((field: ResourceField) => (
                   <Descriptions.Item key={`${field.key}-${field.label}`} label={field.label}>
-                    {formatValue(field, record[field.key], blueprintMap, templateMap)}
+                    {formatValue(field, record[field.key], blueprintMap, templateMap, roleMap)}
                   </Descriptions.Item>
                 ))}
             </Descriptions>
@@ -1371,30 +1484,18 @@ const ResourceShowPage = ({ resourceName }: { resourceName: CrudResourceName }) 
 
 export const SettingsPage = () => {
   const [form] = Form.useForm();
-  const [previewTemplateId, setPreviewTemplateId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [emailTemplates, setEmailTemplates] = useState<AdminRecord[]>([]);
   const { message } = App.useApp();
-  const settingsValues = Form.useWatch([], form) as Record<string, unknown> | undefined;
-  const previewTemplate = emailTemplates.find((entry) => String(entry.id) === String(previewTemplateId ?? ""));
-  const mailWrapperPreview = useEmailTemplateDraftPreview({
-    enabled: Boolean(previewTemplate),
-    subject: String(previewTemplate?.subject ?? ""),
-    bodyHtml: String(previewTemplate?.bodyHtml ?? ""),
-    previewText: String(previewTemplate?.previewText ?? ""),
-    settings: settingsValues
-  });
+  const settingsValues = (Form.useWatch([], form) as Record<string, unknown> | undefined) ?? {};
 
   useEffect(() => {
     let active = true;
-    Promise.all([requestJson<AdminRecord>("/v1/settings"), requestJson<{ docs: AdminRecord[] }>("/v1/email-templates")])
-      .then(([payload, templatesPayload]) => {
+    requestJson<AdminRecord>("/v1/settings")
+      .then((payload) => {
         if (active) {
           form.setFieldsValue(payload);
-          setEmailTemplates(templatesPayload.docs ?? []);
-          setPreviewTemplateId(String((templatesPayload.docs ?? [])[0]?.id ?? ""));
         }
       })
       .catch((nextError) => {
@@ -1433,7 +1534,7 @@ export const SettingsPage = () => {
     <div className="admin-page">
       <SectionIntro
         title="Settings"
-        description="Manage global branding, sender defaults, public URLs, and the shared email wrapper used by system messages."
+        description="Manage global branding, sender defaults, public URLs, and localization values used across the platform."
       />
       <Row gutter={[20, 20]}>
         <Col xs={24} xl={15}>
@@ -1533,22 +1634,6 @@ export const SettingsPage = () => {
                       </Col>
                     </Row>
                   </div>
-
-                  <div className="admin-form-section">
-                    <div className="admin-form-section__title">Email wrapper</div>
-                    <Row gutter={20}>
-                      <Col xs={24}>
-                        <Form.Item label="Mail header HTML" name="mailHeaderHtml" rules={[{ required: true }]}>
-                          <Input.TextArea rows={7} />
-                        </Form.Item>
-                      </Col>
-                      <Col xs={24}>
-                        <Form.Item label="Mail footer HTML" name="mailFooterHtml" rules={[{ required: true }]}>
-                          <Input.TextArea rows={7} />
-                        </Form.Item>
-                      </Col>
-                    </Row>
-                  </div>
                   <div className="admin-form-actions">
                     <Button type="primary" htmlType="submit" icon={<SaveOutlined />} loading={saving}>
                       Save settings
@@ -1560,34 +1645,28 @@ export const SettingsPage = () => {
           </Card>
         </Col>
         <Col xs={24} xl={9}>
-          <Card className="admin-card" title="Email wrapper preview">
+          <Card className="admin-card" title="System summary">
             <Space direction="vertical" size="middle" style={{ width: "100%" }}>
-              <Select
-                value={previewTemplateId ?? undefined}
-                onChange={(value) => setPreviewTemplateId(String(value))}
-                options={emailTemplates.map((entry) => ({
-                  label: String(entry.label ?? entry.id),
-                  value: String(entry.id)
-                }))}
-                placeholder="Choose a template preview"
+              <Descriptions column={1} size="small">
+                <Descriptions.Item label="Brand">{String(settingsValues.brandName ?? "—")}</Descriptions.Item>
+                <Descriptions.Item label="Sender">
+                  {settingsValues.mailFromName || settingsValues.mailFromAddress
+                    ? `${String(settingsValues.mailFromName ?? "")} <${String(settingsValues.mailFromAddress ?? "")}>`
+                    : "—"}
+                </Descriptions.Item>
+                <Descriptions.Item label="Portal URL">{String(settingsValues.portalAppUrl ?? "—")}</Descriptions.Item>
+                <Descriptions.Item label="Designer URL">{String(settingsValues.designerAppUrl ?? "—")}</Descriptions.Item>
+                <Descriptions.Item label="Admin URL">{String(settingsValues.adminAppUrl ?? "—")}</Descriptions.Item>
+                <Descriptions.Item label="Commerce URL">{String(settingsValues.commerceBaseUrl ?? "—")}</Descriptions.Item>
+                <Descriptions.Item label="Locale">{String(settingsValues.defaultLocale ?? "—")}</Descriptions.Item>
+                <Descriptions.Item label="Timezone">{String(settingsValues.defaultTimezone ?? "—")}</Descriptions.Item>
+              </Descriptions>
+              <Alert
+                type="info"
+                showIcon
+                message="Mail wrappers now belong to Email Templates"
+                description="Header and footer HTML are edited directly on each email template, together with the body and live preview."
               />
-              {mailWrapperPreview ? (
-                <>
-                  <div>
-                    <Text type="secondary">Rendered subject</Text>
-                    <div className="admin-preview-subject">{mailWrapperPreview.subject}</div>
-                  </div>
-                  <div>
-                    <Text type="secondary">Preview text</Text>
-                    <div className="admin-preview-meta">{mailWrapperPreview.previewText}</div>
-                  </div>
-                  <div className="admin-html-frame">
-                    <iframe title="Settings mail preview" srcDoc={mailWrapperPreview.html} className="admin-preview-iframe" />
-                  </div>
-                </>
-              ) : (
-                <Empty description="Choose a template to preview the current wrapper." />
-              )}
             </Space>
           </Card>
         </Col>
@@ -1992,6 +2071,10 @@ export const UsersListPage = () => <ResourceListPage resourceName="users" />;
 export const UsersCreatePage = () => <ResourceFormPage resourceName="users" mode="create" />;
 export const UsersEditPage = () => <ResourceFormPage resourceName="users" mode="edit" />;
 export const UsersShowPage = () => <ResourceShowPage resourceName="users" />;
+
+export const RolesListPage = () => <ResourceListPage resourceName="roles" />;
+export const RolesEditPage = () => <ResourceFormPage resourceName="roles" mode="edit" />;
+export const RolesShowPage = () => <ResourceShowPage resourceName="roles" />;
 
 export const ApiTokensListPage = () => <ResourceListPage resourceName="api-tokens" />;
 export const ApiTokensCreatePage = () => <ResourceFormPage resourceName="api-tokens" mode="create" />;

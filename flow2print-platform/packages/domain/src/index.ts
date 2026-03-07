@@ -41,6 +41,15 @@ export interface UserRecord {
   updatedAt: string;
 }
 
+export interface RoleDefinitionRecord {
+  id: UserRole;
+  label: string;
+  description: string;
+  permissions: string[];
+  isSystem: boolean;
+  updatedAt: string;
+}
+
 export interface AuthSessionRecord {
   id: string;
   userId: string;
@@ -88,6 +97,8 @@ export interface EmailTemplateRecord {
   subject: string;
   bodyHtml: string;
   previewText: string;
+  wrapperHeaderHtml: string;
+  wrapperFooterHtml: string;
   updatedAt: string;
 }
 
@@ -106,8 +117,6 @@ export interface SystemSettingsRecord {
   commerceBaseUrl: string;
   defaultLocale: string;
   defaultTimezone: string;
-  mailHeaderHtml: string;
-  mailFooterHtml: string;
   updatedAt: string;
 }
 
@@ -244,6 +253,7 @@ export interface CommerceProjectStatus {
 export interface Flow2PrintState {
   blueprints: BlueprintSummary[];
   templates: TemplateSummary[];
+  roles: RoleDefinitionRecord[];
   emailTemplates: EmailTemplateRecord[];
   systemSettings: SystemSettingsRecord;
   users: UserRecord[];
@@ -337,6 +347,41 @@ export const seedEmailTemplates = (): EmailTemplateRecord[] => {
       bodyHtml:
         "<p>Hello {{recipientEmail}},</p><p>Use the following token to reset your password:</p><p style=\"font-size:18px;font-weight:700;letter-spacing:0.04em;\">{{resetToken}}</p><p>If you did not request this change, you can ignore this email.</p>",
       previewText: "Use the reset token to update the password.",
+      wrapperHeaderHtml:
+        "<div style=\"padding:20px 24px;background:#184a8c;color:#ffffff;font:700 18px/1.2 Arial,sans-serif;\">{{logoText}} · {{brandName}}</div>",
+      wrapperFooterHtml:
+        "<div style=\"padding:18px 24px;border-top:1px solid #d8e0ea;color:#5e6b7c;font:400 13px/1.5 Arial,sans-serif;\">Need help? Contact <a href=\"mailto:{{supportEmail}}\">{{supportEmail}}</a>.<br/>{{companyName}}<br/>{{companyAddress}}</div>",
+      updatedAt
+    }
+  ];
+};
+
+export const seedRoleDefinitions = (): RoleDefinitionRecord[] => {
+  const updatedAt = new Date().toISOString();
+
+  return [
+    {
+      id: "admin",
+      label: "Admin",
+      description: "Full system access including users, settings, tokens, templates, and operational data.",
+      permissions: ["*"],
+      isSystem: true,
+      updatedAt
+    },
+    {
+      id: "manager",
+      label: "Manager",
+      description: "Operational access for projects, assets, commerce, and production-facing workflows.",
+      permissions: ["projects:*", "assets:*", "commerce:*", "catalog:read", "mail:read"],
+      isSystem: true,
+      updatedAt
+    },
+    {
+      id: "customer",
+      label: "Customer",
+      description: "End-user account for portal and project ownership without admin access.",
+      permissions: ["projects:own", "assets:own"],
+      isSystem: true,
       updatedAt
     }
   ];
@@ -359,10 +404,6 @@ export const seedSystemSettings = (): SystemSettingsRecord => {
     commerceBaseUrl: "",
     defaultLocale: "en-US",
     defaultTimezone: "Europe/Berlin",
-    mailHeaderHtml:
-      "<div style=\"padding:20px 24px;background:#184a8c;color:#ffffff;font:700 18px/1.2 Arial,sans-serif;\">{{logoText}} · {{brandName}}</div>",
-    mailFooterHtml:
-      "<div style=\"padding:18px 24px;border-top:1px solid #d8e0ea;color:#5e6b7c;font:400 13px/1.5 Arial,sans-serif;\">Need help? Contact <a href=\"mailto:{{supportEmail}}\">{{supportEmail}}</a>.<br/>{{companyName}}<br/>{{companyAddress}}</div>",
     updatedAt
   };
 };
@@ -951,6 +992,7 @@ export const createPreflightReport = (project: ProjectRecord, version: ProjectVe
 export const createEmptyState = (): Flow2PrintState => ({
   blueprints: seedBlueprints(),
   templates: seedTemplates(),
+  roles: seedRoleDefinitions(),
   emailTemplates: seedEmailTemplates(),
   systemSettings: seedSystemSettings(),
   users: seedUsers(),

@@ -8,6 +8,7 @@ const endpointMap: Record<string, string> = {
   blueprints: "blueprints",
   assets: "assets",
   users: "users",
+  roles: "roles",
   "api-tokens": "api-tokens",
   "mail-log": "mail-log",
   "email-templates": "email-templates",
@@ -16,6 +17,20 @@ const endpointMap: Record<string, string> = {
 
 const withId = (resource: string, id: string | number) => `/v1/${endpointMap[resource]}/${id}`;
 const withCollection = (resource: string) => `/v1/${endpointMap[resource]}`;
+
+const requestJsonWithTimeout = async <T>(input: string, init?: RequestInit, timeoutMs = 1500) => {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await requestJson<T>(input, {
+      ...init,
+      signal: controller.signal
+    });
+  } finally {
+    window.clearTimeout(timer);
+  }
+};
 
 const extractDocs = <T extends BaseRecord>(payload: unknown): GetListResponse<T> => {
   if (payload && typeof payload === "object" && "docs" in (payload as Record<string, unknown>)) {
@@ -58,15 +73,15 @@ export const dataProvider: DataProvider = {
     return extractDocs(payload);
   },
   getOne: async ({ resource, id }) => {
-    if (resource === "projects") {
-      return requestJson<BaseRecord>(withId(resource, id), { method: "GET" }).then((data) => ({ data }));
-    }
-
     if (resource === "settings") {
       return requestJson<BaseRecord>(withCollection(resource), { method: "GET" }).then((data) => ({ data }));
     }
 
-    return getOneViaCollection(resource, id);
+    try {
+      return requestJsonWithTimeout<BaseRecord>(withId(resource, id), { method: "GET" }).then((data) => ({ data }));
+    } catch {
+      return getOneViaCollection(resource, id);
+    }
   },
   create: async ({ resource, variables }) => {
     const data = await requestJson(withCollection(resource), {

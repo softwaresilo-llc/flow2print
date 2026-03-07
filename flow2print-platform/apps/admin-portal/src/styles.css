@@ -251,6 +251,27 @@ body {
   margin-top: 8px;
 }
 
+.admin-table .ant-table-container {
+  overflow: hidden;
+  border-radius: 14px;
+}
+
+.admin-table .ant-table-cell {
+  vertical-align: top;
+}
+
+.admin-table-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 240px;
+}
+
+.admin-table-actions .ant-btn {
+  margin: 0;
+}
+
 .admin-upload-dropzone {
   display: grid;
   place-items: center;

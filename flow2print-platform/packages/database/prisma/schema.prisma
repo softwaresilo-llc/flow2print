@@ -40,6 +40,15 @@ model User {
   passwordResets  PasswordReset[]
 }
 
+model Role {
+  id          String   @id
+  label       String
+  description String
+  permissions String[]
+  isSystem    Boolean
+  updatedAt   DateTime
+}
+
 model ApiToken {
   id              String   @id
   label           String
@@ -90,13 +99,15 @@ model MailLog {
 }
 
 model EmailTemplate {
-  id          String   @id
-  kind        String
-  label       String
-  subject     String
-  bodyHtml    String
-  previewText String
-  updatedAt   DateTime
+  id                String   @id
+  kind              String
+  label             String
+  subject           String
+  bodyHtml          String
+  previewText       String
+  wrapperHeaderHtml String
+  wrapperFooterHtml String
+  updatedAt         DateTime
 
   @@index([kind])
 }
@@ -117,8 +128,6 @@ model SystemSettings {
   commerceBaseUrl String
   defaultLocale   String
   defaultTimezone String
-  mailHeaderHtml  String
-  mailFooterHtml  String
   updatedAt       DateTime
 }
 

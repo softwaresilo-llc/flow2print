@@ -45,7 +45,10 @@ import {
   UsersCreatePage,
   UsersEditPage,
   UsersListPage,
-  UsersShowPage
+  UsersShowPage,
+  RolesListPage,
+  RolesEditPage,
+  RolesShowPage
 } from "./pages.js";
 
 const { Header, Sider, Content } = Layout;
@@ -298,6 +301,10 @@ export const AdminApp = () => (
               <Route path="/users/create" element={<UsersCreatePage />} />
               <Route path="/users/edit/:id" element={<UsersEditPage />} />
               <Route path="/users/show/:id" element={<UsersShowPage />} />
+
+              <Route path="/roles" element={<RolesListPage />} />
+              <Route path="/roles/edit/:id" element={<RolesEditPage />} />
+              <Route path="/roles/show/:id" element={<RolesShowPage />} />
 
               <Route path="/api-tokens" element={<ApiTokensListPage />} />
               <Route path="/api-tokens/create" element={<ApiTokensCreatePage />} />

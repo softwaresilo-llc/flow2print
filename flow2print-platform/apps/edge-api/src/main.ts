@@ -270,6 +270,18 @@ app.get("/v1/api-tokens", async (request, reply) => {
   return reply.send({ docs: await store.listApiTokens() });
 });
 
+app.get("/v1/api-tokens/:id", async (request, reply) => {
+  const session = await requireSessionRole(request, reply, ["admin"], "admin_required");
+  if (!session || "statusCode" in session) {
+    return;
+  }
+  const record = await store.getApiToken(String((request.params as { id: string }).id));
+  if (!record) {
+    return reply.status(404).send({ code: "api_token_not_found" });
+  }
+  return reply.send(record);
+});
+
 app.post("/v1/api-tokens", async (request, reply) => {
   const session = await requireSessionRole(request, reply, ["admin"], "admin_required");
   if (!session || "statusCode" in session) {
@@ -346,6 +358,19 @@ app.get("/v1/email-templates", async (request, reply) => {
   return reply.send({ docs: await store.listEmailTemplates() });
 });
 
+app.get("/v1/email-templates/:id", async (request, reply) => {
+  const token = getBearerToken(request.headers.authorization);
+  const session = token ? await store.getUserBySessionToken(token) : null;
+  if (!session || session.user.role !== "admin") {
+    return reply.status(403).send({ code: "admin_required" });
+  }
+  const record = await store.getEmailTemplate(String((request.params as { id: string }).id));
+  if (!record) {
+    return reply.status(404).send({ code: "email_template_not_found" });
+  }
+  return reply.send(record);
+});
+
 app.post("/v1/email-templates", async (request, reply) => {
   const token = getBearerToken(request.headers.authorization);
   const session = token ? await store.getUserBySessionToken(token) : null;
@@ -358,8 +383,18 @@ app.post("/v1/email-templates", async (request, reply) => {
     subject?: string;
     bodyHtml?: string;
     previewText?: string;
+    wrapperHeaderHtml?: string;
+    wrapperFooterHtml?: string;
   };
-  if (!body.label || !body.kind || !body.subject || !body.bodyHtml || !body.previewText) {
+  if (
+    !body.label ||
+    !body.kind ||
+    !body.subject ||
+    !body.bodyHtml ||
+    !body.previewText ||
+    !body.wrapperHeaderHtml ||
+    !body.wrapperFooterHtml
+  ) {
     return reply.status(400).send({ code: "label_kind_subject_body_and_preview_required" });
   }
   return reply.status(201).send(
@@ -368,7 +403,9 @@ app.post("/v1/email-templates", async (request, reply) => {
       kind: body.kind,
       subject: body.subject,
       bodyHtml: body.bodyHtml,
-      previewText: body.previewText
+      previewText: body.previewText,
+      wrapperHeaderHtml: body.wrapperHeaderHtml,
+      wrapperFooterHtml: body.wrapperFooterHtml
     })
   );
 });
@@ -385,6 +422,8 @@ app.patch("/v1/email-templates/:id", async (request, reply) => {
     subject?: string;
     bodyHtml?: string;
     previewText?: string;
+    wrapperHeaderHtml?: string;
+    wrapperFooterHtml?: string;
   };
   const template = await store.updateEmailTemplate(String((request.params as { id: string }).id), body);
   if (!template) {
@@ -429,6 +468,8 @@ app.post("/v1/email-templates/preview", async (request, reply) => {
     subject?: string;
     bodyHtml?: string;
     previewText?: string;
+    wrapperHeaderHtml?: string;
+    wrapperFooterHtml?: string;
     settings?: {
       brandName?: string;
       companyName?: string;
@@ -444,22 +485,22 @@ app.post("/v1/email-templates/preview", async (request, reply) => {
       commerceBaseUrl?: string;
       defaultLocale?: string;
       defaultTimezone?: string;
-      mailHeaderHtml?: string;
-      mailFooterHtml?: string;
     };
     variables?: {
       recipientEmail?: string;
       resetToken?: string;
     };
   };
-  if (!body.subject || !body.bodyHtml || !body.previewText) {
+  if (!body.subject || !body.bodyHtml || !body.previewText || !body.wrapperHeaderHtml || !body.wrapperFooterHtml) {
     return reply.status(400).send({ code: "subject_body_and_preview_required" });
   }
   const preview = await store.previewEmailTemplate({
     template: {
       subject: body.subject,
       bodyHtml: body.bodyHtml,
-      previewText: body.previewText
+      previewText: body.previewText,
+      wrapperHeaderHtml: body.wrapperHeaderHtml,
+      wrapperFooterHtml: body.wrapperFooterHtml
     },
     settings: body.settings,
     recipientEmail: body.variables?.recipientEmail,
@@ -478,6 +519,39 @@ app.get("/v1/settings", async (request, reply) => {
     return;
   }
   return reply.send(await store.getSystemSettings());
+});
+
+app.get("/v1/roles", async (request, reply) => {
+  const session = await requireSessionRole(request, reply, ["admin"], "admin_required");
+  if (!session || "statusCode" in session) {
+    return;
+  }
+  return reply.send({ docs: await store.listRoles() });
+});
+
+app.get("/v1/roles/:id", async (request, reply) => {
+  const session = await requireSessionRole(request, reply, ["admin"], "admin_required");
+  if (!session || "statusCode" in session) {
+    return;
+  }
+  const role = await store.getRole(String((request.params as { id: string }).id));
+  if (!role) {
+    return reply.status(404).send({ code: "role_not_found" });
+  }
+  return reply.send(role);
+});
+
+app.patch("/v1/roles/:id", async (request, reply) => {
+  const session = await requireSessionRole(request, reply, ["admin"], "admin_required");
+  if (!session || "statusCode" in session) {
+    return;
+  }
+  const body = request.body as { label?: string; description?: string; permissions?: string[] };
+  const role = await store.updateRole(String((request.params as { id: string }).id), body);
+  if (!role) {
+    return reply.status(404).send({ code: "role_not_found" });
+  }
+  return reply.send(role);
 });
 
 app.patch("/v1/settings", async (request, reply) => {
@@ -504,8 +578,6 @@ app.patch("/v1/settings", async (request, reply) => {
     commerceBaseUrl?: string;
     defaultLocale?: string;
     defaultTimezone?: string;
-    mailHeaderHtml?: string;
-    mailFooterHtml?: string;
   };
   return reply.send(await store.updateSystemSettings(body));
 });

@@ -28,6 +28,7 @@ import {
   type PreflightReport,
   type ProjectRecord,
   type ProjectVersionRecord,
+  type RoleDefinitionRecord,
   seedUsers,
   type SystemSettingsRecord,
   type UserRecord,
@@ -95,7 +96,22 @@ const hydrateState = (input: Partial<Flow2PrintState>): Flow2PrintState => {
     ...input,
     blueprints: defaults.blueprints,
     templates: defaults.templates,
-    emailTemplates: input.emailTemplates?.length ? input.emailTemplates : defaults.emailTemplates,
+    roles: input.roles?.length ? input.roles : defaults.roles,
+    emailTemplates: input.emailTemplates?.length
+      ? input.emailTemplates.map((template) => ({
+          ...template,
+          wrapperHeaderHtml:
+            template.wrapperHeaderHtml ??
+            ((input.systemSettings as Record<string, unknown> | undefined)?.mailHeaderHtml as string | undefined) ??
+            defaults.emailTemplates[0]?.wrapperHeaderHtml ??
+            "",
+          wrapperFooterHtml:
+            template.wrapperFooterHtml ??
+            ((input.systemSettings as Record<string, unknown> | undefined)?.mailFooterHtml as string | undefined) ??
+            defaults.emailTemplates[0]?.wrapperFooterHtml ??
+            ""
+        }))
+      : defaults.emailTemplates,
     systemSettings: {
       ...defaults.systemSettings,
       ...input.systemSettings
@@ -177,12 +193,55 @@ class RuntimeStore {
     return this.state.emailTemplates;
   }
 
+  async getApiToken(id: string) {
+    await this.ensureLoaded();
+    return this.state.apiTokens.find((entry) => entry.id === id) ?? null;
+  }
+
+  async getEmailTemplate(id: string) {
+    await this.ensureLoaded();
+    return this.state.emailTemplates.find((entry) => entry.id === id) ?? null;
+  }
+
+  async listRoles() {
+    await this.ensureLoaded();
+    return this.state.roles;
+  }
+
+  async getRole(id: string) {
+    await this.ensureLoaded();
+    return this.state.roles.find((entry) => entry.id === id) ?? null;
+  }
+
+  async updateRole(
+    id: string,
+    input: Partial<Pick<RoleDefinitionRecord, "label" | "description" | "permissions">>
+  ) {
+    await this.ensureLoaded();
+    const current = this.state.roles.find((entry) => entry.id === id);
+    if (!current) {
+      return null;
+    }
+    const updated: RoleDefinitionRecord = {
+      ...current,
+      label: input.label?.trim() ? input.label.trim() : current.label,
+      description: input.description?.trim() ? input.description.trim() : current.description,
+      permissions: input.permissions ?? current.permissions,
+      updatedAt: new Date().toISOString()
+    };
+    this.state.roles = this.state.roles.map((entry) => (entry.id === id ? updated : entry));
+    await this.persist();
+    return updated;
+  }
+
   async createEmailTemplate(input: {
     label: string;
     kind: EmailTemplateRecord["kind"];
     subject: string;
     bodyHtml: string;
     previewText: string;
+    wrapperHeaderHtml: string;
+    wrapperFooterHtml: string;
   }) {
     await this.ensureLoaded();
     const template: EmailTemplateRecord = {
@@ -192,6 +251,8 @@ class RuntimeStore {
       subject: input.subject,
       bodyHtml: input.bodyHtml,
       previewText: input.previewText,
+      wrapperHeaderHtml: input.wrapperHeaderHtml,
+      wrapperFooterHtml: input.wrapperFooterHtml,
       updatedAt: new Date().toISOString()
     };
     this.state.emailTemplates.unshift(template);
@@ -201,7 +262,9 @@ class RuntimeStore {
 
   async updateEmailTemplate(
     id: string,
-    input: Partial<Pick<EmailTemplateRecord, "label" | "kind" | "subject" | "bodyHtml" | "previewText">>
+    input: Partial<
+      Pick<EmailTemplateRecord, "label" | "kind" | "subject" | "bodyHtml" | "previewText" | "wrapperHeaderHtml" | "wrapperFooterHtml">
+    >
   ) {
     await this.ensureLoaded();
     const current = this.state.emailTemplates.find((entry) => entry.id === id);
@@ -254,14 +317,16 @@ class RuntimeStore {
 
     return this.previewEmailTemplate({
       template,
-      settings: this.state.systemSettings,
       recipientEmail: params?.recipientEmail,
       resetToken: params?.resetToken
     });
   }
 
   async previewEmailTemplate(input: {
-    template?: Pick<EmailTemplateRecord, "subject" | "bodyHtml" | "previewText"> | null;
+    template?: Pick<
+      EmailTemplateRecord,
+      "subject" | "bodyHtml" | "previewText" | "wrapperHeaderHtml" | "wrapperFooterHtml"
+    > | null;
     settings?: Partial<SystemSettingsRecord>;
     recipientEmail?: string;
     resetToken?: string;
@@ -302,7 +367,7 @@ class RuntimeStore {
 
     return {
       subject: render(template.subject),
-      html: `<!doctype html><html><body style="margin:0;background:#f3f5f8;"><div style="max-width:640px;margin:32px auto;background:#ffffff;border:1px solid #d8e0ea;border-radius:16px;overflow:hidden;">${render(settings.mailHeaderHtml)}<div style="padding:24px 24px 8px 24px;color:#172231;font:400 14px/1.7 Arial,sans-serif;">${render(template.bodyHtml)}</div>${render(settings.mailFooterHtml)}</div></body></html>`,
+      html: `<!doctype html><html><body style="margin:0;background:#f3f5f8;"><div style="max-width:640px;margin:32px auto;background:#ffffff;border:1px solid #d8e0ea;border-radius:16px;overflow:hidden;">${render(template.wrapperHeaderHtml)}<div style="padding:24px 24px 8px 24px;color:#172231;font:400 14px/1.7 Arial,sans-serif;">${render(template.bodyHtml)}</div>${render(template.wrapperFooterHtml)}</div></body></html>`,
       previewText: render(template.previewText)
     };
   }

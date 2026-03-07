@@ -34,6 +34,8 @@ import {
   type PreflightReport,
   type ProjectRecord,
   type ProjectVersionRecord,
+  type RoleDefinitionRecord,
+  seedRoleDefinitions,
   type SystemSettingsRecord,
   type TemplateSummary,
   type UserRecord,
@@ -152,6 +154,8 @@ const mapEmailTemplate = (record: {
   subject: string;
   bodyHtml: string;
   previewText: string;
+  wrapperHeaderHtml: string;
+  wrapperFooterHtml: string;
   updatedAt: Date;
 }): EmailTemplateRecord => ({
   id: record.id,
@@ -160,6 +164,8 @@ const mapEmailTemplate = (record: {
   subject: record.subject,
   bodyHtml: record.bodyHtml,
   previewText: record.previewText,
+  wrapperHeaderHtml: record.wrapperHeaderHtml,
+  wrapperFooterHtml: record.wrapperFooterHtml,
   updatedAt: record.updatedAt.toISOString()
 });
 
@@ -178,8 +184,6 @@ const mapSettings = (record: {
   commerceBaseUrl: string;
   defaultLocale: string;
   defaultTimezone: string;
-  mailHeaderHtml: string;
-  mailFooterHtml: string;
   updatedAt: Date;
 }): SystemSettingsRecord => ({
   brandName: record.brandName,
@@ -196,8 +200,22 @@ const mapSettings = (record: {
   commerceBaseUrl: record.commerceBaseUrl,
   defaultLocale: record.defaultLocale,
   defaultTimezone: record.defaultTimezone,
-  mailHeaderHtml: record.mailHeaderHtml,
-  mailFooterHtml: record.mailFooterHtml,
+  updatedAt: record.updatedAt.toISOString()
+});
+
+const mapRole = (record: {
+  id: string;
+  label: string;
+  description: string;
+  permissions: string[];
+  isSystem: boolean;
+  updatedAt: Date;
+}): RoleDefinitionRecord => ({
+  id: record.id as RoleDefinitionRecord["id"],
+  label: record.label,
+  description: record.description,
+  permissions: record.permissions,
+  isSystem: record.isSystem,
   updatedAt: record.updatedAt.toISOString()
 });
 
@@ -402,6 +420,23 @@ export class DatabaseRuntimeStore {
       return;
     }
 
+    for (const role of seedRoleDefinitions()) {
+      await this.prisma.role.upsert({
+        where: { id: role.id },
+        update: {
+          label: role.label,
+          description: role.description,
+          permissions: role.permissions,
+          isSystem: role.isSystem,
+          updatedAt: new Date(role.updatedAt)
+        },
+        create: {
+          ...role,
+          updatedAt: new Date(role.updatedAt)
+        }
+      });
+    }
+
     for (const blueprint of seedBlueprints()) {
       await this.prisma.blueprint.upsert({
         where: { id: blueprint.id },
@@ -436,6 +471,8 @@ export class DatabaseRuntimeStore {
           subject: template.subject,
           bodyHtml: template.bodyHtml,
           previewText: template.previewText,
+          wrapperHeaderHtml: template.wrapperHeaderHtml,
+          wrapperFooterHtml: template.wrapperFooterHtml,
           updatedAt: new Date(template.updatedAt)
         },
         create: {
@@ -510,12 +547,50 @@ export class DatabaseRuntimeStore {
     return (await this.prisma.emailTemplate.findMany({ orderBy: { updatedAt: "desc" } })).map(mapEmailTemplate);
   }
 
+  async getEmailTemplate(id: string) {
+    await this.ensureSeeded();
+    const record = await this.prisma.emailTemplate.findUnique({ where: { id } });
+    return record ? mapEmailTemplate(record) : null;
+  }
+
+  async listRoles() {
+    await this.ensureSeeded();
+    return (await this.prisma.role.findMany({ orderBy: { label: "asc" } })).map(mapRole);
+  }
+
+  async getRole(id: string) {
+    await this.ensureSeeded();
+    const record = await this.prisma.role.findUnique({ where: { id } });
+    return record ? mapRole(record) : null;
+  }
+
+  async updateRole(id: string, input: Partial<Pick<RoleDefinitionRecord, "label" | "description" | "permissions">>) {
+    await this.ensureSeeded();
+    const current = await this.prisma.role.findUnique({ where: { id } });
+    if (!current) {
+      return null;
+    }
+    return mapRole(
+      await this.prisma.role.update({
+        where: { id },
+        data: {
+          label: input.label?.trim() ? input.label.trim() : current.label,
+          description: input.description?.trim() ? input.description.trim() : current.description,
+          permissions: input.permissions ?? current.permissions,
+          updatedAt: new Date()
+        }
+      })
+    );
+  }
+
   async createEmailTemplate(input: {
     label: string;
     kind: EmailTemplateRecord["kind"];
     subject: string;
     bodyHtml: string;
     previewText: string;
+    wrapperHeaderHtml: string;
+    wrapperFooterHtml: string;
   }) {
     await this.ensureSeeded();
     return mapEmailTemplate(
@@ -527,6 +602,8 @@ export class DatabaseRuntimeStore {
           subject: input.subject,
           bodyHtml: input.bodyHtml,
           previewText: input.previewText,
+          wrapperHeaderHtml: input.wrapperHeaderHtml,
+          wrapperFooterHtml: input.wrapperFooterHtml,
           updatedAt: new Date()
         }
       })
@@ -535,7 +612,9 @@ export class DatabaseRuntimeStore {
 
   async updateEmailTemplate(
     id: string,
-    input: Partial<Pick<EmailTemplateRecord, "label" | "kind" | "subject" | "bodyHtml" | "previewText">>
+    input: Partial<
+      Pick<EmailTemplateRecord, "label" | "kind" | "subject" | "bodyHtml" | "previewText" | "wrapperHeaderHtml" | "wrapperFooterHtml">
+    >
   ) {
     await this.ensureSeeded();
     const current = await this.prisma.emailTemplate.findUnique({ where: { id } });
@@ -551,6 +630,8 @@ export class DatabaseRuntimeStore {
           subject: input.subject ?? current.subject,
           bodyHtml: input.bodyHtml ?? current.bodyHtml,
           previewText: input.previewText ?? current.previewText,
+          wrapperHeaderHtml: input.wrapperHeaderHtml ?? current.wrapperHeaderHtml,
+          wrapperFooterHtml: input.wrapperFooterHtml ?? current.wrapperFooterHtml,
           updatedAt: new Date()
         }
       })
@@ -590,8 +671,6 @@ export class DatabaseRuntimeStore {
           commerceBaseUrl: input.commerceBaseUrl ?? current.commerceBaseUrl,
           defaultLocale: input.defaultLocale ?? current.defaultLocale,
           defaultTimezone: input.defaultTimezone ?? current.defaultTimezone,
-          mailHeaderHtml: input.mailHeaderHtml ?? current.mailHeaderHtml,
-          mailFooterHtml: input.mailFooterHtml ?? current.mailFooterHtml,
           updatedAt: new Date()
         }
       })
@@ -608,7 +687,9 @@ export class DatabaseRuntimeStore {
       template: {
         subject: template.subject,
         bodyHtml: template.bodyHtml,
-        previewText: template.previewText
+        previewText: template.previewText,
+        wrapperHeaderHtml: template.wrapperHeaderHtml,
+        wrapperFooterHtml: template.wrapperFooterHtml
       },
       recipientEmail: params?.recipientEmail,
       resetToken: params?.resetToken
@@ -616,7 +697,10 @@ export class DatabaseRuntimeStore {
   }
 
   async previewEmailTemplate(input: {
-    template?: Pick<EmailTemplateRecord, "subject" | "bodyHtml" | "previewText"> | null;
+    template?: Pick<
+      EmailTemplateRecord,
+      "subject" | "bodyHtml" | "previewText" | "wrapperHeaderHtml" | "wrapperFooterHtml"
+    > | null;
     settings?: Partial<SystemSettingsRecord>;
     recipientEmail?: string;
     resetToken?: string;
@@ -651,7 +735,7 @@ export class DatabaseRuntimeStore {
 
     return {
       subject: render(input.template.subject),
-      html: `<!doctype html><html><body style="margin:0;background:#f3f5f8;"><div style="max-width:640px;margin:32px auto;background:#ffffff;border:1px solid #d8e0ea;border-radius:16px;overflow:hidden;">${render(settings.mailHeaderHtml)}<div style="padding:24px 24px 8px 24px;color:#172231;font:400 14px/1.7 Arial,sans-serif;">${render(input.template.bodyHtml)}</div>${render(settings.mailFooterHtml)}</div></body></html>`,
+      html: `<!doctype html><html><body style="margin:0;background:#f3f5f8;"><div style="max-width:640px;margin:32px auto;background:#ffffff;border:1px solid #d8e0ea;border-radius:16px;overflow:hidden;">${render(input.template.wrapperHeaderHtml)}<div style="padding:24px 24px 8px 24px;color:#172231;font:400 14px/1.7 Arial,sans-serif;">${render(input.template.bodyHtml)}</div>${render(input.template.wrapperFooterHtml)}</div></body></html>`,
       previewText: render(input.template.previewText)
     };
   }
@@ -759,6 +843,12 @@ export class DatabaseRuntimeStore {
   async listApiTokens() {
     await this.ensureSeeded();
     return (await this.prisma.apiToken.findMany({ orderBy: { createdAt: "desc" } })).map(mapApiToken);
+  }
+
+  async getApiToken(id: string) {
+    await this.ensureSeeded();
+    const record = await this.prisma.apiToken.findUnique({ where: { id } });
+    return record ? mapApiToken(record) : null;
   }
 
   async createApiToken(input: {

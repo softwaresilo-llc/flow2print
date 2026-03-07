@@ -20,12 +20,13 @@ export type AdminResourceName =
   | "blueprints"
   | "assets"
   | "users"
+  | "roles"
   | "api-tokens"
   | "mail-log"
   | "email-templates"
   | "settings";
 export type FieldType = "text" | "textarea" | "select" | "multiselect" | "email" | "password" | "number" | "date" | "status";
-export type OptionSource = "blueprints" | "templates";
+export type OptionSource = "blueprints" | "templates" | "roles";
 
 export interface SelectOption {
   label: string;
@@ -123,10 +124,10 @@ export const adminResources: AdminResourceConfig[] = [
       { key: "approvalState", label: "Approval", type: "status", list: true, show: true },
       { key: "preflightStatus", label: "Preflight", type: "status", list: true, show: true },
       { key: "artifactCount", label: "Files", type: "number", list: true, show: true },
-      { key: "ownerIdentityId", label: "Owner", type: "text", list: true, show: true },
-      { key: "channel", label: "Channel", type: "text", list: true, show: true },
+      { key: "ownerIdentityId", label: "Owner", type: "text", list: false, show: true },
+      { key: "channel", label: "Channel", type: "text", list: false, show: true },
       { key: "createdAt", label: "Created", type: "date", list: true, show: true },
-      { key: "updatedAt", label: "Updated", type: "date", list: true, show: true }
+      { key: "updatedAt", label: "Updated", type: "date", list: false, show: true }
     ]
   },
   {
@@ -327,11 +328,8 @@ export const adminResources: AdminResourceConfig[] = [
         list: true,
         form: true,
         show: true,
-        options: [
-          { label: "Admin", value: "admin" },
-          { label: "Manager", value: "manager" },
-          { label: "Customer", value: "customer" }
-        ]
+        optionSource: "roles",
+        extra: "Roles are managed centrally in Role management."
       },
       {
         key: "status",
@@ -364,6 +362,70 @@ export const adminResources: AdminResourceConfig[] = [
       },
       { key: "createdAt", label: "Created", type: "date", list: true, show: true, disabled: true },
       { key: "updatedAt", label: "Updated", type: "date", list: true, show: true, disabled: true }
+    ]
+  },
+  {
+    name: "roles",
+    label: "Roles",
+    singularLabel: "Role",
+    description: "Manage role labels, descriptions, and permission summaries used across the admin workspace.",
+    listPath: "/roles",
+    editPath: "/roles/edit/:id",
+    showPath: "/roles/show/:id",
+    icon: <TeamOutlined />,
+    canCreate: false,
+    canEdit: true,
+    canDelete: false,
+    emptyTitle: "No roles defined",
+    emptyDescription: "Built-in roles appear here and can be documented or adjusted.",
+    fields: [
+      { key: "id", label: "Role key", type: "text", list: true, show: true },
+      { key: "label", label: "Label", type: "text", list: true, form: true, show: true, required: true },
+      {
+        key: "description",
+        label: "Description",
+        type: "textarea",
+        list: true,
+        form: true,
+        show: true,
+        required: true
+      },
+      {
+        key: "permissions",
+        label: "Permissions",
+        type: "multiselect",
+        list: true,
+        form: true,
+        show: true,
+        required: true,
+        options: [
+          { label: "All access", value: "*" },
+          { label: "Projects read", value: "projects:read" },
+          { label: "Projects write", value: "projects:write" },
+          { label: "Projects own", value: "projects:own" },
+          { label: "Assets read", value: "assets:read" },
+          { label: "Assets write", value: "assets:write" },
+          { label: "Assets own", value: "assets:own" },
+          { label: "Commerce read", value: "commerce:read" },
+          { label: "Commerce write", value: "commerce:write" },
+          { label: "Catalog read", value: "catalog:read" },
+          { label: "Mail read", value: "mail:read" },
+          { label: "Users read", value: "users:read" },
+          { label: "Users write", value: "users:write" }
+        ]
+      },
+      {
+        key: "isSystem",
+        label: "System role",
+        type: "status",
+        list: true,
+        show: true,
+        options: [
+          { label: "System", value: "true" },
+          { label: "Custom", value: "false" }
+        ]
+      },
+      { key: "updatedAt", label: "Updated", type: "date", list: true, show: true }
     ]
   },
   {
@@ -456,7 +518,7 @@ export const adminResources: AdminResourceConfig[] = [
     name: "email-templates",
     label: "Email Templates",
     singularLabel: "Email template",
-    description: "Manage system email content with subject, body HTML, and preview text.",
+    description: "Manage system email content, wrapper HTML, and preview text in one place.",
     listPath: "/email-templates",
     createPath: "/email-templates/create",
     editPath: "/email-templates/edit/:id",
@@ -509,7 +571,7 @@ export const adminResources: AdminResourceConfig[] = [
         show: false,
         required: true,
         placeholder: "<p>Hello {{recipientEmail}}</p>",
-        extra: "Supports {{brandName}}, {{logoText}}, {{recipientEmail}}, {{resetToken}}, {{supportEmail}}, and footer/header placeholders from Settings."
+        extra: "Supports {{brandName}}, {{logoText}}, {{recipientEmail}}, {{resetToken}}, {{supportEmail}}, and URL/company placeholders from Settings."
       },
       {
         key: "previewText",
@@ -521,6 +583,26 @@ export const adminResources: AdminResourceConfig[] = [
         show: true,
         required: true,
         placeholder: "Use the reset token to update the password."
+      },
+      {
+        key: "wrapperHeaderHtml",
+        label: "Mail header HTML",
+        type: "textarea",
+        list: false,
+        form: true,
+        show: true,
+        required: true,
+        placeholder: "<div>{{logoText}} · {{brandName}}</div>"
+      },
+      {
+        key: "wrapperFooterHtml",
+        label: "Mail footer HTML",
+        type: "textarea",
+        list: false,
+        form: true,
+        show: true,
+        required: true,
+        placeholder: "<div>{{companyName}}</div>"
       },
       { key: "updatedAt", label: "Updated", type: "date", list: true, show: true }
     ]
@@ -551,7 +633,7 @@ export const adminResources: AdminResourceConfig[] = [
     name: "settings",
     label: "Settings",
     singularLabel: "Setting",
-    description: "Configure global system values, branding, and mail wrapper templates.",
+    description: "Configure global system values, branding, sender defaults, application URLs, and localization.",
     listPath: "/settings",
     showPath: "/settings",
     icon: <SettingOutlined />,
@@ -575,8 +657,6 @@ export const adminResources: AdminResourceConfig[] = [
       { key: "commerceBaseUrl", label: "Commerce URL", type: "text", form: true, show: true },
       { key: "defaultLocale", label: "Default locale", type: "text", form: true, show: true, required: true },
       { key: "defaultTimezone", label: "Default timezone", type: "text", form: true, show: true, required: true },
-      { key: "mailHeaderHtml", label: "Mail header HTML", type: "textarea", form: true, show: true, required: true },
-      { key: "mailFooterHtml", label: "Mail footer HTML", type: "textarea", form: true, show: true, required: true },
       { key: "updatedAt", label: "Updated", type: "date", show: true }
     ]
   }

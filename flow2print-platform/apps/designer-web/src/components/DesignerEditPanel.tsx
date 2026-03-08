@@ -124,11 +124,12 @@ export const DesignerEditPanel = ({
     <div className="inspector-form">
       <div className="inspector-summary">
         <div>
-          <p className="workspace-label">Selected</p>
           <h4>{selectedLayer.name}</h4>
         </div>
         <div className="badge-row">
           <span className="badge badge--neutral">{selectedLayer.type}</span>
+          {!selectedLayer.visible ? <span className="badge badge--warning">hidden</span> : null}
+          {selectedLayer.locked ? <span className="badge badge--neutral">locked</span> : null}
           <button
             type="button"
             className="button--ghost inspector-summary__menu"
@@ -349,24 +350,6 @@ export const DesignerEditPanel = ({
                   <option value="circle">Circle</option>
                 </select>
               </label>
-              <label>
-                <span>Crop X</span>
-                <input
-                  type="number"
-                  value={Number(selectedLayer.metadata.cropX ?? 0)}
-                  onChange={(event) => onUpdateSelectedImageCrop("cropX", Number(event.target.value))}
-                  disabled={selectedLayer.locked}
-                />
-              </label>
-              <label>
-                <span>Crop Y</span>
-                <input
-                  type="number"
-                  value={Number(selectedLayer.metadata.cropY ?? 0)}
-                  onChange={(event) => onUpdateSelectedImageCrop("cropY", Number(event.target.value))}
-                  disabled={selectedLayer.locked}
-                />
-              </label>
             </div>
             <div className="stack-actions">
               <button
@@ -395,46 +378,12 @@ export const DesignerEditPanel = ({
                 Reset crop
               </button>
             </div>
-            <div className="stack-actions">
-              <button
-                type="button"
-                className="button--ghost"
-                onClick={() => onUpdateSelectedImageCrop("cropX", Number(selectedLayer.metadata.cropX ?? 0) - 2)}
-                disabled={selectedLayer.locked}
-              >
-                Crop left
-              </button>
-              <button
-                type="button"
-                className="button--ghost"
-                onClick={() => onUpdateSelectedImageCrop("cropX", Number(selectedLayer.metadata.cropX ?? 0) + 2)}
-                disabled={selectedLayer.locked}
-              >
-                Crop right
-              </button>
-              <button
-                type="button"
-                className="button--ghost"
-                onClick={() => onUpdateSelectedImageCrop("cropY", Number(selectedLayer.metadata.cropY ?? 0) - 2)}
-                disabled={selectedLayer.locked}
-              >
-                Crop up
-              </button>
-              <button
-                type="button"
-                className="button--ghost"
-                onClick={() => onUpdateSelectedImageCrop("cropY", Number(selectedLayer.metadata.cropY ?? 0) + 2)}
-                disabled={selectedLayer.locked}
-              >
-                Crop down
-              </button>
-            </div>
           </>
         ) : null}
       </div>
       <div className="inspector-section">
         <div className="inspector-section__header">
-          <h4>Size & position</h4>
+          <h4>Layout</h4>
         </div>
         <div className="inspector-grid">
           <label>
@@ -453,13 +402,6 @@ export const DesignerEditPanel = ({
             <span>Height</span>
             <input type="number" value={selectedLayer.height} onChange={(event) => onUpdateLayerNumericField("height", event.target.value)} disabled={selectedLayer.locked} />
           </label>
-        </div>
-      </div>
-      <div className="inspector-section">
-        <div className="inspector-section__header">
-          <h4>Appearance</h4>
-        </div>
-        <div className="inspector-grid">
           <label>
             <span>Rotate</span>
             <input type="number" value={selectedLayer.rotation} onChange={(event) => onUpdateLayerNumericField("rotation", event.target.value)} disabled={selectedLayer.locked} />
@@ -473,16 +415,6 @@ export const DesignerEditPanel = ({
               disabled={selectedLayer.locked}
             />
           </label>
-        </div>
-        <div className="kv-list">
-          <div className="kv-item">
-            <strong>Visibility</strong>
-            <span>{selectedLayer.visible ? "Visible on canvas and in print files" : "Hidden from canvas and print files"}</span>
-          </div>
-          <div className="kv-item">
-            <strong>Editing</strong>
-            <span>{selectedLayer.locked ? "Locked against accidental changes" : "Unlocked for editing"}</span>
-          </div>
         </div>
       </div>
     </div>

@@ -2,24 +2,27 @@ import type { ReactNode } from "react";
 
 interface DesignerWorkspaceTopbarProps {
   projectTitle: string;
-  badges: ReactNode;
+  statusLine: ReactNode;
   mode: "edit" | "review" | "finish";
   onModeChange: (mode: "edit" | "review" | "finish") => void;
+  tools: ReactNode;
   actions: ReactNode;
 }
 
 export const DesignerWorkspaceTopbar = ({
   projectTitle,
-  badges,
+  statusLine,
   mode,
   onModeChange,
+  tools,
   actions
 }: DesignerWorkspaceTopbarProps) => (
   <header className="workspace-topbar workspace-topbar--editor">
     <div className="workspace-title">
       <h1>{projectTitle}</h1>
-      <div className="badge-row">{badges}</div>
+      <div className="workspace-statusline">{statusLine}</div>
     </div>
+    <div className="workspace-tools">{tools}</div>
     <div className="workspace-mode-switch" role="tablist" aria-label="Designer workflow">
       <button
         type="button"

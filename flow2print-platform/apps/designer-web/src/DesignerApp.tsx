@@ -10,6 +10,8 @@ import { DesignerInspectorPanel } from "./components/DesignerInspectorPanel";
 import { DesignerNavigatorPanel } from "./components/DesignerNavigatorPanel";
 import { DesignerOverlay } from "./components/DesignerOverlay";
 import { DesignerReviewPanel } from "./components/DesignerReviewPanel";
+import { DesignerSideFilmstrip } from "./components/DesignerSideFilmstrip";
+import { DesignerToolRail } from "./components/DesignerToolRail";
 import { DesignerWorkspaceTopbar } from "./components/DesignerWorkspaceTopbar";
 import { FabricCanvasStage, type FabricCanvasStageHandle } from "./components/FabricCanvasStage";
 import { LayerContextMenu } from "./components/LayerContextMenu";
@@ -262,7 +264,7 @@ export const DesignerApp = () => {
   const [guidesVisible, setGuidesVisible] = useState(true);
   const [gridEnabled, setGridEnabled] = useState(true);
   const [snapEnabled, setSnapEnabled] = useState(true);
-  const [leftPanel, setLeftPanel] = useState<"layers" | "assets" | "session">("layers");
+  const [leftPanel, setLeftPanel] = useState<"layers" | "assets" | "history">("layers");
   const [rightPanel, setRightPanel] = useState<"edit" | "review" | "finish">("edit");
   const [cropMode, setCropMode] = useState(false);
   const [viewportSize, setViewportSize] = useState(() => ({
@@ -440,7 +442,6 @@ export const DesignerApp = () => {
   const selectedLayer = currentSurface?.layers.find((layer) => layer.id === selectedLayerId) ?? null;
   const selectedLayers = currentSurface?.layers.filter((layer) => selectedLayerIds.includes(layer.id)) ?? [];
   const isCompactViewport = viewportSize.width <= 720;
-  const showNavigatorSidebar = !isCompactViewport && rightPanel === "edit";
   const multiSelectionActive = selectedLayerIds.length > 1;
   const canGroupSelection = multiSelectionActive && selectedLayers.every((layer) => layer.type !== "group");
   const canDistributeSelection = selectedLayerIds.length > 2;
@@ -455,6 +456,7 @@ export const DesignerApp = () => {
   );
   const currentTemplate = compatibleTemplates.find((template) => template.id === (project?.templateId ?? selectedTemplateId)) ?? null;
   const isEditableProject = project?.status === "draft";
+  const isStageEditable = isEditableProject && rightPanel === "edit";
   const isBlankSurface = (currentSurface?.layers.length ?? 0) === 0;
 
   const documentSummary = useMemo(
@@ -1373,6 +1375,17 @@ export const DesignerApp = () => {
     });
   };
 
+  const selectSurface = (index: number) => {
+    if (!draftDocument) {
+      return;
+    }
+    const surface = draftDocument.surfaces[index];
+    setSelectedSurfaceIndex(index);
+    setSelectedLayerIds(surface?.layers[0]?.id ? [surface.layers[0].id] : []);
+    setSelectedLayerId(surface?.layers[0]?.id ?? null);
+    setCropMode(false);
+  };
+
   const renameCurrentSurface = (label: string) => {
     if (!currentSurface) {
       return;
@@ -1770,56 +1783,10 @@ export const DesignerApp = () => {
         onPanelChange={setLeftPanel}
         layersContent={
           <>
-            <div className="surface-list">
-              <div className="surface-actions">
-                <label className="surface-label-editor">
-                  <span>Side name</span>
-                  <input
-                    value={currentSurface.label}
-                    onChange={(event) => renameCurrentSurface(event.target.value)}
-                    disabled={!isEditableProject}
-                  />
-                </label>
-                {isEditableProject ? (
-                  <div className="stack-actions">
-                    <button type="button" className="button--ghost" onClick={addSurface}>
-                      Add side
-                    </button>
-                    {draftDocument.surfaces.length > 1 ? (
-                      <>
-                        <button type="button" className="button--ghost" onClick={duplicateCurrentSurface}>
-                          Duplicate
-                        </button>
-                        <button type="button" className="button--ghost" onClick={removeCurrentSurface}>
-                          Remove
-                        </button>
-                      </>
-                    ) : null}
-                  </div>
-                ) : null}
-              </div>
-              {draftDocument.surfaces.map((surface, index) => (
-                <button
-                  key={surface.surfaceId}
-                  type="button"
-                  className={`surface-tab ${index === selectedSurfaceIndex ? "surface-tab--active" : ""}`}
-                  onClick={() => {
-                    setSelectedSurfaceIndex(index);
-                    setSelectedLayerIds(surface.layers[0]?.id ? [surface.layers[0].id] : []);
-                    setSelectedLayerId(surface.layers[0]?.id ?? null);
-                  }}
-                >
-                  <strong>{surface.label}</strong>
-                  <span>
-                    {surface.artboard.width} × {surface.artboard.height} mm
-                  </span>
-                </button>
-              ))}
-            </div>
             <div className="list-section-header">
               <div>
                 <strong>Layers</strong>
-                <span>{currentSurface.layers.length} on this side</span>
+                <span>{currentSurface.layers.length} on {currentSurface.label}</span>
               </div>
             </div>
             <div className="layer-list">
@@ -1918,7 +1885,7 @@ export const DesignerApp = () => {
             <div className="list-section-header">
               <div>
                 <strong>Assets</strong>
-                <span>Reusable images for this project.</span>
+                <span>Reusable files for this project.</span>
               </div>
             </div>
             <div className="asset-list">
@@ -1941,12 +1908,12 @@ export const DesignerApp = () => {
             </div>
           </>
         }
-        sessionContent={
+        historyContent={
           <>
             <div className="history-summary">
               <div className="kv-item">
-                <strong>Version</strong>
-                <span>{project.activeVersionId.slice(-12)}</span>
+                <strong>Status</strong>
+                <span>{humanizeStatus(project.status)}</span>
               </div>
               <div className="kv-item">
                 <strong>Template</strong>
@@ -1961,34 +1928,12 @@ export const DesignerApp = () => {
                 <span>{historyPast.length}</span>
               </div>
             </div>
-            <div className="history-actions">
-              {isEditableProject ? (
-                <>
-                  <button type="button" className="button--ghost" onClick={undoChange} disabled={historyPast.length === 0}>
-                    Undo
-                  </button>
-                  <button type="button" className="button--ghost" onClick={redoChange} disabled={historyFuture.length === 0}>
-                    Redo
-                  </button>
-                  <button type="button" className="button--ghost" onClick={resetDraft} disabled={!hasUnsavedChanges || saving}>
-                    Discard
-                  </button>
-                  <button type="button" onClick={() => void saveDraftDocument()} disabled={!hasUnsavedChanges || saving}>
-                    {saving ? "Saving..." : "Save draft"}
-                  </button>
-                </>
-              ) : (
-                <button type="button" onClick={openExportPanel}>
-                  Open files
-                </button>
-              )}
-            </div>
-              <div className="list-section-header">
-                <div>
-                  <strong>Recent changes</strong>
-                  <span>Latest edits in this browser session.</span>
-                </div>
+            <div className="list-section-header">
+              <div>
+                <strong>Recent changes</strong>
+                <span>Latest edits in this browser session.</span>
               </div>
+            </div>
             <div className="history-list">
               {recentHistoryEntries.length === 0 ? (
                 <div className="empty-state">No local changes yet. Start with text, an image, or a template.</div>
@@ -2003,16 +1948,14 @@ export const DesignerApp = () => {
                 </div>
               ))}
             </div>
-            {isEditableProject ? (
-                <div className="layout-guide-card">
-                  <div className="kv-list">
-                    <div className="kv-item">
-                      <strong>Shortcuts</strong>
-                      <span>Save, undo, delete, arrows.</span>
-                    </div>
-                  </div>
+            <div className="layout-guide-card">
+              <div className="kv-list">
+                <div className="kv-item">
+                  <strong>Shortcuts</strong>
+                  <span>Save, undo, delete, arrows.</span>
                 </div>
-            ) : null}
+              </div>
+            </div>
           </>
         }
       />
@@ -2028,15 +1971,37 @@ export const DesignerApp = () => {
       <div className={`workspace-shell ${isEmbedded ? "workspace-shell--embedded" : ""}`}>
         <DesignerWorkspaceTopbar
           projectTitle={project.title}
-          badges={
+          statusLine={
             <>
               <span className={badgeTone(project.status)}>{humanizeStatus(project.status)}</span>
-              {hasUnsavedChanges ? <span className="badge badge--warning">unsaved changes</span> : null}
-              {hasBlockingIssues && !isBlankSurface ? <span className="badge badge--danger">review required</span> : null}
+              <span className="workspace-statusline__text">
+                {hasUnsavedChanges ? "Changes not saved" : "All changes saved"}
+              </span>
+              {hasBlockingIssues && !isBlankSurface ? <span className="badge badge--danger">Needs attention</span> : null}
             </>
           }
           mode={rightPanel}
           onModeChange={setRightPanel}
+          tools={
+            <>
+              <button type="button" className="button--ghost" onClick={undoChange} disabled={historyPast.length === 0 || !isEditableProject}>
+                Undo
+              </button>
+              <button type="button" className="button--ghost" onClick={redoChange} disabled={historyFuture.length === 0 || !isEditableProject}>
+                Redo
+              </button>
+              <button type="button" className="button--ghost" onClick={() => setZoom((value) => clamp(value - 0.1, 0.5, 2))}>
+                -
+              </button>
+              <button type="button" className="button--ghost" onClick={() => setZoom(1)}>
+                Fit
+              </button>
+              <button type="button" className="button--ghost" onClick={() => setZoom((value) => clamp(value + 0.1, 0.5, 2))}>
+                +
+              </button>
+              <span className="badge badge--neutral">{Math.round(zoom * 100)}%</span>
+            </>
+          }
           actions={
             <>
               {isEditableProject && rightPanel === "edit" ? (
@@ -2046,13 +2011,13 @@ export const DesignerApp = () => {
               ) : null}
               {isEditableProject && rightPanel === "edit" ? (
                 <button type="button" onClick={() => setRightPanel("review")}>
-                  Review design
+                  Check
                 </button>
               ) : null}
               {isEditableProject && rightPanel === "review" ? (
                 <>
                   <button type="button" className="button--ghost" onClick={() => setRightPanel("edit")}>
-                    Edit
+                    Back to design
                   </button>
                   <button type="button" onClick={() => void finalizeProject()} disabled={finalizing || hasBlockingIssues}>
                     {finalizing ? "Creating..." : "Create print files"}
@@ -2061,7 +2026,7 @@ export const DesignerApp = () => {
               ) : null}
               {!isEditableProject && rightPanel === "finish" ? (
                 <button type="button" onClick={openExportPanel}>
-                  Open export
+                  Open files
                 </button>
               ) : null}
               <button type="button" className="button--ghost" onClick={() => setOverlay("menu")}>
@@ -2072,14 +2037,31 @@ export const DesignerApp = () => {
         />
 
         <section className="workspace-layout">
-          {showNavigatorSidebar ? (
-            <aside className="workspace-sidebar workspace-sidebar--navigator">{renderNavigatorContent()}</aside>
-          ) : null}
+          {rightPanel === "edit" ? (
+            <DesignerToolRail
+              isEditableProject={isEditableProject}
+              saving={saving}
+              activeUtilityPanel={leftPanel}
+              onAddText={addTextLayer}
+              onAddImage={() => openFilePicker("insert")}
+              onAddShape={addShapeLayer}
+              onOpenUtilityPanel={(panel) => {
+                setLeftPanel(panel);
+                setOverlay("navigator");
+              }}
+              onOpenMenu={() => setOverlay("menu")}
+            />
+          ) : (
+            <div className="tool-rail tool-rail--passive" aria-hidden="true" />
+          )}
 
           <section className="workspace-stage workspace-stage--primary">
             <div className="stage-header stage-header--editor">
               <div>
                 <h2>{currentSurface.label}</h2>
+                <p className="stage-header__meta">
+                  Print area {currentSurface.artboard.width} × {currentSurface.artboard.height} mm
+                </p>
               </div>
               <div className="badge-row">
                 <span className="badge badge--neutral">{currentSurface.layers.length} items</span>
@@ -2099,54 +2081,6 @@ export const DesignerApp = () => {
             ) : null}
 
             <div className="stage-wrapper">
-              {rightPanel === "edit" && !isBlankSurface ? (
-                <div className="stage-toolbar">
-                  <div className="stage-toolbar__group">
-                    <div className="stack-actions">
-                      <button type="button" onClick={addTextLayer} disabled={project.status === "finalized"}>
-                        Text
-                      </button>
-                      <button
-                        type="button"
-                        className="button--ghost"
-                        onClick={() => openFilePicker("insert")}
-                        disabled={project.status === "finalized" || saving}
-                      >
-                        {saving ? "Uploading..." : "Upload image"}
-                      </button>
-                      <button type="button" className="button--ghost" onClick={addShapeLayer} disabled={project.status === "finalized"}>
-                        Shape
-                      </button>
-                    </div>
-                  </div>
-                  <div className="stage-toolbar__group">
-                    <div className="stack-actions">
-                      <button type="button" className="button--ghost" onClick={() => setZoom((value) => clamp(value - 0.1, 0.5, 2))}>
-                        -
-                      </button>
-                      <button type="button" className="button--ghost" onClick={() => setZoom(1)}>
-                        Fit
-                      </button>
-                      <button type="button" className="button--ghost" onClick={() => setZoom((value) => clamp(value + 0.1, 0.5, 2))}>
-                        +
-                      </button>
-                      <span className="badge badge--neutral">Zoom {Math.round(zoom * 100)}%</span>
-                      <button type="button" className={`button--ghost ${gridEnabled ? "toggle-active" : ""}`} onClick={() => setGridEnabled((value) => !value)}>
-                        Grid
-                      </button>
-                      <button type="button" className={`button--ghost ${snapEnabled ? "toggle-active" : ""}`} onClick={() => setSnapEnabled((value) => !value)}>
-                        Snap
-                      </button>
-                      <button type="button" className="button--ghost" onClick={undoChange} disabled={historyPast.length === 0}>
-                        Undo
-                      </button>
-                      <button type="button" className="button--ghost" onClick={redoChange} disabled={historyFuture.length === 0}>
-                        Redo
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ) : null}
               {rightPanel === "edit" && selectedLayerLayoutStatus && selectedLayerLayoutStatus.tone !== "badge badge--success" ? (
                 <div className="layout-status-row">
                   <span className={selectedLayerLayoutStatus.tone}>{selectedLayerLayoutStatus.text}</span>
@@ -2205,12 +2139,6 @@ export const DesignerApp = () => {
                         <button type="button" className="button--ghost" onClick={duplicateSelectedLayer}>
                           Duplicate
                         </button>
-                        <button type="button" className="button--ghost" onClick={() => toggleSelectedLayerFlag("visible")}>
-                          {selectedLayer.visible ? "Hide" : "Show"}
-                        </button>
-                        <button type="button" className="button--ghost" onClick={() => toggleSelectedLayerFlag("locked")}>
-                          {selectedLayer.locked ? "Unlock" : "Lock"}
-                        </button>
                         {selectedLayer.type === "image" ? (
                           <button type="button" className="button--ghost" onClick={() => setCropMode(true)}>
                             Crop image
@@ -2240,10 +2168,10 @@ export const DesignerApp = () => {
                           Group
                         </button>
                         <button type="button" className="button--ghost" onClick={() => distributeSelectedLayers("horizontal")} disabled={!canDistributeSelection}>
-                          Distribute H
+                          Space H
                         </button>
                         <button type="button" className="button--ghost" onClick={() => distributeSelectedLayers("vertical")} disabled={!canDistributeSelection}>
-                          Distribute V
+                          Space V
                         </button>
                       </>
                     ) : null}
@@ -2316,7 +2244,7 @@ export const DesignerApp = () => {
                     cropLayerId={cropMode ? selectedLayer?.id ?? null : null}
                     gridEnabled={gridEnabled}
                     guidesVisible={guidesVisible}
-                    isEditable={isEditableProject}
+                    isEditable={isStageEditable}
                     selectedLayerIds={selectedLayerIds}
                     onSelectionChange={selectLayerIds}
                     onSurfaceChange={(nextSurface, historyLabel) => {
@@ -2326,35 +2254,25 @@ export const DesignerApp = () => {
                   />
                 </div>
               </div>
-              {isCompactViewport && rightPanel === "edit" && isEditableProject ? (
-                <div className="mobile-action-bar">
-                  <button type="button" onClick={addTextLayer}>
-                    Text
-                  </button>
-                  <button type="button" className="button--ghost" onClick={() => openFilePicker("insert")} disabled={saving}>
-                    Image
-                  </button>
-                  <button type="button" className="button--ghost" onClick={() => setOverlay("navigator")}>
-                    Layers
-                  </button>
-                  <button type="button" className="button--ghost" onClick={() => setRightPanel("review")}>
-                    Review
-                  </button>
-                  <button type="button" className="button--ghost" onClick={() => setOverlay("menu")}>
-                    More
-                  </button>
-                </div>
-              ) : null}
+              <DesignerSideFilmstrip
+                surfaces={draftDocument.surfaces}
+                selectedSurfaceIndex={selectedSurfaceIndex}
+                isEditableProject={isEditableProject && rightPanel === "edit"}
+                onSelectSurface={selectSurface}
+                onAddSurface={addSurface}
+                onDuplicateSurface={duplicateCurrentSurface}
+                onRemoveSurface={removeCurrentSurface}
+              />
             </div>
 
           </section>
 
           <aside className="workspace-sidebar workspace-sidebar--inspector">
             <DesignerInspectorPanel
-              title={rightPanel === "edit" ? "Selection" : rightPanel === "review" ? "Review" : "Files"}
+              title={rightPanel === "edit" ? "Item" : rightPanel === "review" ? "Check" : "Files"}
               description={
                 rightPanel === "edit"
-                  ? undefined
+                  ? "Select something on the page to edit it."
                   : rightPanel === "review"
                     ? "Fix issues before creating files."
                     : "Open the latest generated files."
@@ -2424,8 +2342,12 @@ export const DesignerApp = () => {
             : overlay === "projects"
               ? "Open another project"
               : overlay === "navigator"
-                ? "Document"
-              : "Workspace options"
+                ? leftPanel === "layers"
+                  ? "Layers"
+                  : leftPanel === "assets"
+                    ? "Assets"
+                    : "History"
+                : "Workspace options"
         }
         description={
           overlay === "templates"
@@ -2433,8 +2355,8 @@ export const DesignerApp = () => {
             : overlay === "projects"
               ? "Open another saved project."
               : overlay === "navigator"
-                ? "Pages, layers, assets, and history."
-              : "Project tools that are not part of the main design flow."
+                ? "Support panels that stay out of the main design area."
+              : "Project and setup actions that are not part of the canvas."
         }
         onClose={() => setOverlay(null)}
       >
@@ -2496,8 +2418,8 @@ export const DesignerApp = () => {
             <div className="workspace-menu-grid">
               <article className="template-card">
                 <div>
-                  <h3>Insert</h3>
-                  <p>Add less common items to this side.</p>
+                  <h3>Add more</h3>
+                  <p>Insert less common content on the current side.</p>
                 </div>
                 <div className="product-actions">
                   <button
@@ -2538,7 +2460,7 @@ export const DesignerApp = () => {
               <article className="template-card">
                 <div>
                   <h3>Project</h3>
-                  <p>Open another project or close this workspace.</p>
+                  <p>Switch project or leave the workspace.</p>
                 </div>
                 <div className="product-actions">
                   <button type="button" className="button--ghost" onClick={() => setOverlay("projects")}>
@@ -2558,11 +2480,38 @@ export const DesignerApp = () => {
                   <button type="button" className="button--ghost" onClick={() => setOverlay("templates")} disabled={templateBusy}>
                     {templateBusy ? "Changing..." : "Change template"}
                   </button>
-                  {isCompactViewport ? (
-                    <button type="button" className="button--ghost" onClick={() => setOverlay("navigator")}>
-                      Open workspace
-                    </button>
-                  ) : null}
+                  <button
+                    type="button"
+                    className="button--ghost"
+                    onClick={() => {
+                      setLeftPanel("layers");
+                      setOverlay("navigator");
+                    }}
+                  >
+                    Open layers
+                  </button>
+                </div>
+              </article>
+              <article className="template-card">
+                <div>
+                  <h3>Canvas view</h3>
+                  <p>Show layout guides and snapping helpers.</p>
+                </div>
+                <div className="product-actions">
+                  <button
+                    type="button"
+                    className={`button--ghost ${gridEnabled ? "toggle-active" : ""}`}
+                    onClick={() => setGridEnabled((value) => !value)}
+                  >
+                    {gridEnabled ? "Hide grid" : "Show grid"}
+                  </button>
+                  <button
+                    type="button"
+                    className={`button--ghost ${snapEnabled ? "toggle-active" : ""}`}
+                    onClick={() => setSnapEnabled((value) => !value)}
+                  >
+                    {snapEnabled ? "Turn snap off" : "Turn snap on"}
+                  </button>
                 </div>
               </article>
             </div>

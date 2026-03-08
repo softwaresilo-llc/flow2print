@@ -31,8 +31,8 @@ export const DesignerEditPanel = ({
   if (!selectedLayer) {
     return (
       <div className="inspector-empty">
-        <h4>Nothing selected</h4>
-        <p>Select an item on the canvas.</p>
+        <h4>Select an item</h4>
+        <p>Click text, an image, or a shape on the page to edit it here.</p>
       </div>
     );
   }
@@ -87,15 +87,15 @@ export const DesignerEditPanel = ({
         </div>
         <div className="inspector-section">
           <div className="inspector-section__header">
-            <h4>Placement</h4>
+            <h4>Position</h4>
           </div>
           <div className="kv-list">
             <div className="kv-item">
-              <strong>Left</strong>
+              <strong>X</strong>
               <span>{selectedLayer.x}</span>
             </div>
             <div className="kv-item">
-              <strong>Top</strong>
+              <strong>Y</strong>
               <span>{selectedLayer.y}</span>
             </div>
             <div className="kv-item">
@@ -107,7 +107,7 @@ export const DesignerEditPanel = ({
               <span>{selectedLayer.height}</span>
             </div>
             <div className="kv-item">
-              <strong>Rotation</strong>
+              <strong>Rotate</strong>
               <span>{selectedLayer.rotation}</span>
             </div>
             <div className="kv-item">
@@ -434,15 +434,15 @@ export const DesignerEditPanel = ({
       </div>
       <div className="inspector-section">
         <div className="inspector-section__header">
-          <h4>Size and position</h4>
+          <h4>Size & position</h4>
         </div>
         <div className="inspector-grid">
           <label>
-            <span>Left</span>
+            <span>X</span>
             <input type="number" value={selectedLayer.x} onChange={(event) => onUpdateLayerNumericField("x", event.target.value)} disabled={selectedLayer.locked} />
           </label>
           <label>
-            <span>Top</span>
+            <span>Y</span>
             <input type="number" value={selectedLayer.y} onChange={(event) => onUpdateLayerNumericField("y", event.target.value)} disabled={selectedLayer.locked} />
           </label>
           <label>
@@ -461,7 +461,7 @@ export const DesignerEditPanel = ({
         </div>
         <div className="inspector-grid">
           <label>
-            <span>Rotation</span>
+            <span>Rotate</span>
             <input type="number" value={selectedLayer.rotation} onChange={(event) => onUpdateLayerNumericField("rotation", event.target.value)} disabled={selectedLayer.locked} />
           </label>
           <label>

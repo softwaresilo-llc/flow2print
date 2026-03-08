@@ -16,10 +16,10 @@ export const DesignerFinishPanel = ({
   orderRef
 }: DesignerFinishPanelProps) => (
   <>
-    <div className="section-heading">
+    <div className="review-summary">
       <div>
-        <h3>Files</h3>
-        <p>Open the latest generated files.</p>
+        <strong>{artifacts.length > 0 ? "Latest files are ready." : "No files have been created yet."}</strong>
+        <p>{artifacts.length > 0 ? "Open the latest generated files below." : "Create print files from Check to generate them."}</p>
       </div>
       <span className="badge badge--neutral">{artifacts.length}</span>
     </div>

@@ -2,11 +2,11 @@ import type { ReactNode } from "react";
 
 interface DesignerNavigatorPanelProps {
   summary: string;
-  leftPanel: "layers" | "assets" | "session";
-  onPanelChange: (panel: "layers" | "assets" | "session") => void;
+  leftPanel: "layers" | "assets" | "history";
+  onPanelChange: (panel: "layers" | "assets" | "history") => void;
   layersContent: ReactNode;
   assetsContent: ReactNode;
-  sessionContent: ReactNode;
+  historyContent: ReactNode;
 }
 
 export const DesignerNavigatorPanel = ({
@@ -15,11 +15,11 @@ export const DesignerNavigatorPanel = ({
   onPanelChange,
   layersContent,
   assetsContent,
-  sessionContent
+  historyContent
 }: DesignerNavigatorPanelProps) => (
-  <article className="panel panel--tight panel--navigator">
+  <article className="panel panel--tight panel--navigator panel--utility">
     <div className="navigator-topbar">
-      <strong>Workspace</strong>
+      <strong>Library</strong>
       <span className="badge badge--neutral">{summary}</span>
     </div>
     <div className="panel-tabs panel-tabs--navigator">
@@ -39,14 +39,14 @@ export const DesignerNavigatorPanel = ({
       </button>
       <button
         type="button"
-        className={`panel-tab ${leftPanel === "session" ? "panel-tab--active" : ""}`}
-        onClick={() => onPanelChange("session")}
+        className={`panel-tab ${leftPanel === "history" ? "panel-tab--active" : ""}`}
+        onClick={() => onPanelChange("history")}
       >
         History
       </button>
     </div>
     {leftPanel === "layers" ? layersContent : null}
     {leftPanel === "assets" ? assetsContent : null}
-    {leftPanel === "session" ? sessionContent : null}
+    {leftPanel === "history" ? historyContent : null}
   </article>
 );

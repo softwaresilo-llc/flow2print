@@ -7,6 +7,7 @@ interface DesignerWorkspaceTopbarProps {
   onModeChange: (mode: "edit" | "review" | "finish") => void;
   tools: ReactNode;
   actions: ReactNode;
+  editLabel?: string;
 }
 
 export const DesignerWorkspaceTopbar = ({
@@ -15,7 +16,8 @@ export const DesignerWorkspaceTopbar = ({
   mode,
   onModeChange,
   tools,
-  actions
+  actions,
+  editLabel = "Design"
 }: DesignerWorkspaceTopbarProps) => (
   <header className="workspace-topbar workspace-topbar--editor">
     <div className="workspace-title">
@@ -29,7 +31,7 @@ export const DesignerWorkspaceTopbar = ({
         className={`workspace-mode ${mode === "edit" ? "workspace-mode--active" : ""}`}
         onClick={() => onModeChange("edit")}
       >
-        Design
+        {editLabel}
       </button>
       <button
         type="button"

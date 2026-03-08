@@ -1,11 +1,8 @@
 interface DesignerToolRailProps {
   isEditableProject: boolean;
   saving: boolean;
-  activeUtilityPanel: "layers" | "assets" | "history";
-  onAddText: () => void;
-  onAddImage: () => void;
-  onAddShape: () => void;
-  onOpenUtilityPanel: (panel: "layers" | "assets" | "history") => void;
+  activeUtilityPanel: "add" | "layers" | "assets" | "history";
+  onOpenUtilityPanel: (panel: "add" | "layers" | "assets" | "history") => void;
   onOpenMenu: () => void;
 }
 
@@ -38,22 +35,18 @@ export const DesignerToolRail = ({
   isEditableProject,
   saving,
   activeUtilityPanel,
-  onAddText,
-  onAddImage,
-  onAddShape,
   onOpenUtilityPanel,
   onOpenMenu
 }: DesignerToolRailProps) => (
   <aside className="tool-rail" aria-label="Design tools">
     <div className="tool-rail__group">
-      <ToolRailButton label="Text" title="Add text" disabled={!isEditableProject} onClick={onAddText} />
       <ToolRailButton
-        label={saving ? "..." : "Image"}
-        title="Add image"
-        disabled={!isEditableProject || saving}
-        onClick={onAddImage}
+        label={saving ? "Busy" : "Add"}
+        title="Open add elements"
+        active={activeUtilityPanel === "add"}
+        disabled={!isEditableProject && activeUtilityPanel !== "add"}
+        onClick={() => onOpenUtilityPanel("add")}
       />
-      <ToolRailButton label="Shape" title="Add shape" disabled={!isEditableProject} onClick={onAddShape} />
     </div>
     <div className="tool-rail__separator" />
     <div className="tool-rail__group">
@@ -69,6 +62,8 @@ export const DesignerToolRail = ({
         active={activeUtilityPanel === "assets"}
         onClick={() => onOpenUtilityPanel("assets")}
       />
+    </div>
+    <div className="tool-rail__group">
       <ToolRailButton
         label="History"
         title="Open history"

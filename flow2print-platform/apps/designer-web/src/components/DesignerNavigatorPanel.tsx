@@ -1,52 +1,24 @@
-import type { ReactNode } from "react";
-
 interface DesignerNavigatorPanelProps {
+  title: string;
   summary: string;
-  leftPanel: "layers" | "assets" | "history";
-  onPanelChange: (panel: "layers" | "assets" | "history") => void;
-  layersContent: ReactNode;
-  assetsContent: ReactNode;
-  historyContent: ReactNode;
+  description: string;
+  content: React.ReactNode;
 }
 
 export const DesignerNavigatorPanel = ({
+  title,
   summary,
-  leftPanel,
-  onPanelChange,
-  layersContent,
-  assetsContent,
-  historyContent
+  description,
+  content
 }: DesignerNavigatorPanelProps) => (
-  <article className="panel panel--tight panel--navigator panel--utility">
+  <article className="panel panel--tight panel--navigator panel--sidebar panel--utility">
     <div className="navigator-topbar">
-      <strong>Library</strong>
+      <div>
+        <strong>{title}</strong>
+        <p>{description}</p>
+      </div>
       <span className="badge badge--neutral">{summary}</span>
     </div>
-    <div className="panel-tabs panel-tabs--navigator">
-      <button
-        type="button"
-        className={`panel-tab ${leftPanel === "layers" ? "panel-tab--active" : ""}`}
-        onClick={() => onPanelChange("layers")}
-      >
-        Layers
-      </button>
-      <button
-        type="button"
-        className={`panel-tab ${leftPanel === "assets" ? "panel-tab--active" : ""}`}
-        onClick={() => onPanelChange("assets")}
-      >
-        Assets
-      </button>
-      <button
-        type="button"
-        className={`panel-tab ${leftPanel === "history" ? "panel-tab--active" : ""}`}
-        onClick={() => onPanelChange("history")}
-      >
-        History
-      </button>
-    </div>
-    {leftPanel === "layers" ? layersContent : null}
-    {leftPanel === "assets" ? assetsContent : null}
-    {leftPanel === "history" ? historyContent : null}
+    {content}
   </article>
 );

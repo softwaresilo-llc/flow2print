@@ -6,9 +6,11 @@ import { summarizeDocument } from "@flow2print/editor-engine";
 import { DesignerLauncher } from "./components/DesignerLauncher";
 import { DesignerEditPanel } from "./components/DesignerEditPanel";
 import { DesignerFinishPanel } from "./components/DesignerFinishPanel";
+import { DesignerAddPanel } from "./components/DesignerAddPanel";
 import { DesignerInspectorPanel } from "./components/DesignerInspectorPanel";
 import { DesignerNavigatorPanel } from "./components/DesignerNavigatorPanel";
 import { DesignerOverlay } from "./components/DesignerOverlay";
+import { DesignerPreviewPanel } from "./components/DesignerPreviewPanel";
 import { DesignerReviewPanel } from "./components/DesignerReviewPanel";
 import { DesignerSideFilmstrip } from "./components/DesignerSideFilmstrip";
 import { DesignerToolRail } from "./components/DesignerToolRail";
@@ -264,7 +266,7 @@ export const DesignerApp = () => {
   const [guidesVisible, setGuidesVisible] = useState(true);
   const [gridEnabled, setGridEnabled] = useState(true);
   const [snapEnabled, setSnapEnabled] = useState(true);
-  const [leftPanel, setLeftPanel] = useState<"layers" | "assets" | "history">("layers");
+  const [leftPanel, setLeftPanel] = useState<"add" | "layers" | "assets" | "history">("layers");
   const [rightPanel, setRightPanel] = useState<"edit" | "review" | "finish">("edit");
   const [cropMode, setCropMode] = useState(false);
   const [viewportSize, setViewportSize] = useState(() => ({
@@ -457,6 +459,7 @@ export const DesignerApp = () => {
   const currentTemplate = compatibleTemplates.find((template) => template.id === (project?.templateId ?? selectedTemplateId)) ?? null;
   const isEditableProject = project?.status === "draft";
   const isStageEditable = isEditableProject && rightPanel === "edit";
+  const isReadOnlyPreview = !isEditableProject && rightPanel === "edit";
   const isBlankSurface = (currentSurface?.layers.length ?? 0) === 0;
 
   const documentSummary = useMemo(
@@ -490,6 +493,15 @@ export const DesignerApp = () => {
       setSelectedLayerId(surface.layers[0]?.id ?? null);
     }
   }, [draftDocument, selectedLayerId, selectedSurfaceIndex]);
+
+  useEffect(() => {
+    if (!isEditableProject || !currentSurface) {
+      return;
+    }
+    if (currentSurface.layers.length === 0 && leftPanel !== "add") {
+      setLeftPanel("add");
+    }
+  }, [currentSurface, isEditableProject, leftPanel]);
 
   useEffect(() => {
     if (selectedLayerIds.length > 1) {
@@ -1770,18 +1782,45 @@ export const DesignerApp = () => {
       return null;
     }
 
-    return (
-      <DesignerNavigatorPanel
-        summary={
-          leftPanel === "layers"
-            ? `${currentSurface.layers.length} items`
-            : leftPanel === "assets"
-              ? `${availableImageAssets.length} files`
-              : `${historyPast.length} changes`
-        }
-        leftPanel={leftPanel}
-        onPanelChange={setLeftPanel}
-        layersContent={
+    if (leftPanel === "add") {
+      return (
+        <DesignerAddPanel
+          isEditableProject={isEditableProject}
+          saving={saving}
+          templates={compatibleTemplates.map((template) => ({
+            id: template.id,
+            displayName: template.displayName,
+            description: template.description
+          }))}
+          assets={availableImageAssets.map((asset) => ({
+            id: asset.id,
+            filename: asset.filename,
+            mimeType: asset.mimeType
+          }))}
+          onAddText={addTextLayer}
+          onAddShape={addShapeLayer}
+          onAddQr={addQrLayer}
+          onAddBarcode={addBarcodeLayer}
+          onUploadImage={() => openFilePicker("insert")}
+          onUseSampleImage={() => void createDemoAsset()}
+          onUseTemplate={(templateId) => void applyTemplate(templateId)}
+          onPlaceAsset={(assetId) => {
+            const asset = availableImageAssets.find((entry) => entry.id === assetId);
+            if (asset) {
+              placeExistingAsset(asset);
+            }
+          }}
+        />
+      );
+    }
+
+    if (leftPanel === "layers") {
+      return (
+        <DesignerNavigatorPanel
+          title="Layers"
+          summary={`${currentSurface.layers.length} items`}
+          description={`Manage the objects on ${currentSurface.label}.`}
+          content={
           <>
             <div className="list-section-header">
               <div>
@@ -1879,8 +1918,18 @@ export const DesignerApp = () => {
               ))}
             </div>
           </>
-        }
-        assetsContent={
+          }
+        />
+      );
+    }
+
+    if (leftPanel === "assets") {
+      return (
+        <DesignerNavigatorPanel
+          title="Assets"
+          summary={`${availableImageAssets.length} files`}
+          description="Reusable files for this project."
+          content={
           <>
             <div className="list-section-header">
               <div>
@@ -1907,8 +1956,17 @@ export const DesignerApp = () => {
               ))}
             </div>
           </>
-        }
-        historyContent={
+          }
+        />
+      );
+    }
+
+    return (
+      <DesignerNavigatorPanel
+        title="History"
+        summary={`${historyPast.length} changes`}
+        description="Recent local editing actions in this session."
+        content={
           <>
             <div className="history-summary">
               <div className="kv-item">
@@ -1982,15 +2040,20 @@ export const DesignerApp = () => {
           }
           mode={rightPanel}
           onModeChange={setRightPanel}
+          editLabel={isEditableProject ? "Design" : "Preview"}
           tools={
             rightPanel === "edit" ? (
               <>
-                <button type="button" className="button--ghost" onClick={undoChange} disabled={historyPast.length === 0 || !isEditableProject}>
-                  Undo
-                </button>
-                <button type="button" className="button--ghost" onClick={redoChange} disabled={historyFuture.length === 0 || !isEditableProject}>
-                  Redo
-                </button>
+                {isEditableProject ? (
+                  <>
+                    <button type="button" className="button--ghost" onClick={undoChange} disabled={historyPast.length === 0}>
+                      Undo
+                    </button>
+                    <button type="button" className="button--ghost" onClick={redoChange} disabled={historyFuture.length === 0}>
+                      Redo
+                    </button>
+                  </>
+                ) : null}
                 <button type="button" className="button--ghost" onClick={() => setZoom((value) => clamp(value - 0.1, 0.5, 2))}>
                   -
                 </button>
@@ -2002,7 +2065,7 @@ export const DesignerApp = () => {
                 </button>
                 <span className="badge badge--neutral">{Math.round(zoom * 100)}%</span>
               </>
-            ) : null
+              ) : null
           }
           actions={
             <>
@@ -2031,6 +2094,11 @@ export const DesignerApp = () => {
                   Open files
                 </button>
               ) : null}
+              {!isEditableProject && rightPanel === "edit" ? (
+                <button type="button" onClick={() => setRightPanel("finish")}>
+                  Open files
+                </button>
+              ) : null}
               <button type="button" className="button--ghost" onClick={() => setOverlay("menu")}>
                 More
               </button>
@@ -2038,24 +2106,33 @@ export const DesignerApp = () => {
           }
         />
 
-        <section className="workspace-layout">
-          {rightPanel === "edit" ? (
+        <section
+          className={`workspace-layout ${
+            rightPanel === "edit" && !isCompactViewport && isEditableProject
+              ? "workspace-layout--with-sidebar"
+              : isReadOnlyPreview
+                ? "workspace-layout--preview"
+                : ""
+          }`}
+        >
+          {rightPanel === "edit" && isEditableProject ? (
             <DesignerToolRail
               isEditableProject={isEditableProject}
               saving={saving}
               activeUtilityPanel={leftPanel}
-              onAddText={addTextLayer}
-              onAddImage={() => openFilePicker("insert")}
-              onAddShape={addShapeLayer}
               onOpenUtilityPanel={(panel) => {
                 setLeftPanel(panel);
-                setOverlay("navigator");
+                if (isCompactViewport) {
+                  setOverlay("navigator");
+                }
               }}
               onOpenMenu={() => setOverlay("menu")}
             />
-          ) : (
-            <div className="tool-rail tool-rail--passive" aria-hidden="true" />
-          )}
+          ) : null}
+
+          {rightPanel === "edit" && !isCompactViewport && isEditableProject ? (
+            <aside className="workspace-sidebar workspace-sidebar--navigator">{renderNavigatorContent()}</aside>
+          ) : null}
 
           <section className="workspace-stage workspace-stage--primary">
             <div className="stage-header stage-header--editor">
@@ -2271,27 +2348,42 @@ export const DesignerApp = () => {
 
           <aside className="workspace-sidebar workspace-sidebar--inspector">
             <DesignerInspectorPanel
-              title={rightPanel === "edit" ? "Item" : rightPanel === "review" ? "Check" : "Files"}
+              title={rightPanel === "edit" ? (isEditableProject ? "Item" : "Preview") : rightPanel === "review" ? "Check" : "Files"}
               description={
                 rightPanel === "edit"
-                  ? "Select something on the page to edit it."
+                  ? isEditableProject
+                    ? "Select something on the page to edit it."
+                    : "Review the locked layout and generated output."
                   : rightPanel === "review"
                     ? "Fix issues before creating files."
                     : "Open the latest generated files."
               }
             >
               {rightPanel === "edit" ? (
-                <DesignerEditPanel
-                  selectedLayer={selectedLayer}
-                  isEditableProject={isEditableProject}
-                  layerAssetFilename={layerAsset?.filename ?? null}
-                  saving={saving}
-                  onUpdateSelectedLayer={updateSelectedLayer}
-                  onUpdateLayerNumericField={updateLayerNumericField}
-                  onUpdateSelectedImageCrop={updateSelectedImageCrop}
-                  onOpenReplaceImage={() => openFilePicker("replace")}
-                  onOpenLayerActions={(element) => openLayerContextMenuFromElement(element, selectedLayer?.id ?? "")}
-                />
+                isEditableProject ? (
+                  <DesignerEditPanel
+                    selectedLayer={selectedLayer}
+                    isEditableProject={isEditableProject}
+                    layerAssetFilename={layerAsset?.filename ?? null}
+                    saving={saving}
+                    onUpdateSelectedLayer={updateSelectedLayer}
+                    onUpdateLayerNumericField={updateLayerNumericField}
+                    onUpdateSelectedImageCrop={updateSelectedImageCrop}
+                    onOpenReplaceImage={() => openFilePicker("replace")}
+                    onOpenLayerActions={(element) => openLayerContextMenuFromElement(element, selectedLayer?.id ?? "")}
+                  />
+                ) : (
+                  <DesignerPreviewPanel
+                    selectedLayerName={selectedLayer?.name ?? null}
+                    selectedLayerType={selectedLayer?.type ?? null}
+                    surfaceLabel={currentSurface.label}
+                    surfaceCount={draftDocument.surfaces.length}
+                    itemCount={currentSurface.layers.length}
+                    artifactCount={project.artifacts.length}
+                    templateName={currentTemplate?.displayName ?? null}
+                    statusBadge={<span className={badgeTone(project.status)}>{humanizeStatus(project.status)}</span>}
+                  />
+                )
               ) : null}
               {rightPanel === "review" ? (
                 <DesignerReviewPanel
@@ -2344,7 +2436,9 @@ export const DesignerApp = () => {
             : overlay === "projects"
               ? "Open another project"
               : overlay === "navigator"
-                ? leftPanel === "layers"
+                ? leftPanel === "add"
+                  ? "Add elements"
+                  : leftPanel === "layers"
                   ? "Layers"
                   : leftPanel === "assets"
                     ? "Assets"
@@ -2357,7 +2451,9 @@ export const DesignerApp = () => {
             : overlay === "projects"
               ? "Open another saved project."
               : overlay === "navigator"
-                ? "Support panels that stay out of the main design area."
+                ? leftPanel === "add"
+                  ? "Insert content without covering the stage."
+                  : "Support panels that stay out of the main design area."
               : "Project and setup actions that are not part of the canvas."
         }
         onClose={() => setOverlay(null)}

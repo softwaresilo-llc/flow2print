@@ -2444,7 +2444,6 @@ export const DesignerApp = () => {
                     onUpdateLayerNumericField={updateLayerNumericField}
                     onUpdateSelectedImageCrop={updateSelectedImageCrop}
                     onOpenReplaceImage={() => openFilePicker("replace")}
-                    onOpenLayerActions={(element) => openLayerContextMenuFromElement(element, selectedLayer?.id ?? "")}
                   />
                 ) : (
                   <DesignerPreviewPanel

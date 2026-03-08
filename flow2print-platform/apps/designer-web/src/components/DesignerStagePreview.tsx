@@ -151,22 +151,33 @@ const renderLayerContent = (
     const imageStyle = getImageObjectPosition(layer);
     return (
       <div key={layer.id} className={sharedClassName} style={style} onClick={handleSelect} role="button" tabIndex={0}>
-        {imageUrl ? (
-          <img
-            src={imageUrl}
-            alt={layer.name}
-            className="stage-preview__image"
-            style={imageStyle}
-            draggable={false}
-          />
-        ) : (
-          <div className="stage-preview__image-missing">
-            <span className="material-symbols-outlined" aria-hidden="true">
-              image
-            </span>
-            <span>{layer.name}</span>
-          </div>
-        )}
+        <div className="stage-preview__layer-inner">
+          {imageUrl ? (
+            <img
+              src={imageUrl}
+              alt={layer.name}
+              className="stage-preview__image"
+              style={imageStyle}
+              draggable={false}
+            />
+          ) : (
+            <div className="stage-preview__image-missing">
+              <span className="material-symbols-outlined" aria-hidden="true">
+                image
+              </span>
+              <span>{layer.name}</span>
+            </div>
+          )}
+        </div>
+        {selectedLayerIds.includes(layer.id) ? (
+          <>
+            <span className="stage-preview__handle stage-preview__handle--tl" />
+            <span className="stage-preview__handle stage-preview__handle--tr" />
+            <span className="stage-preview__handle stage-preview__handle--bl" />
+            <span className="stage-preview__handle stage-preview__handle--br" />
+            <span className="stage-preview__handle stage-preview__handle--mr" />
+          </>
+        ) : null}
       </div>
     );
   }
@@ -175,24 +186,37 @@ const renderLayerContent = (
     const children = Array.isArray(layer.metadata.children) ? (layer.metadata.children as DesignerLayer[]) : [];
     return (
       <div key={layer.id} className={sharedClassName} style={style} onClick={handleSelect} role="button" tabIndex={0}>
-        {children.map((child) =>
-          renderLayerContent(
-            { ...child, x: child.x - layer.x, y: child.y - layer.y },
-            scale,
-            assetUrls,
-            onSelectLayerIds,
-            selectedLayerIds
-          )
-        )}
+        <div className="stage-preview__layer-inner">
+          {children.map((child) =>
+            renderLayerContent(
+              { ...child, x: child.x - layer.x, y: child.y - layer.y },
+              scale,
+              assetUrls,
+              onSelectLayerIds,
+              selectedLayerIds
+            )
+          )}
+        </div>
+        {selectedLayerIds.includes(layer.id) ? (
+          <>
+            <span className="stage-preview__handle stage-preview__handle--tl" />
+            <span className="stage-preview__handle stage-preview__handle--tr" />
+            <span className="stage-preview__handle stage-preview__handle--bl" />
+            <span className="stage-preview__handle stage-preview__handle--br" />
+            <span className="stage-preview__handle stage-preview__handle--mr" />
+          </>
+        ) : null}
       </div>
     );
   }
 
   return (
     <div key={layer.id} className={sharedClassName} style={style} onClick={handleSelect} role="button" tabIndex={0}>
-      {layer.type === "text" ? renderTextContent(layer, scale) : null}
-      {layer.type === "shape" ? renderShapeContent(layer) : null}
-      {layer.type === "qr" || layer.type === "barcode" ? renderQrOrBarcodeContent(layer) : null}
+      <div className="stage-preview__layer-inner">
+        {layer.type === "text" ? renderTextContent(layer, scale) : null}
+        {layer.type === "shape" ? renderShapeContent(layer) : null}
+        {layer.type === "qr" || layer.type === "barcode" ? renderQrOrBarcodeContent(layer) : null}
+      </div>
       {selectedLayerIds.includes(layer.id) ? (
         <>
           <span className="stage-preview__handle stage-preview__handle--tl" />

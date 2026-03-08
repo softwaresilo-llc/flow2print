@@ -14,7 +14,6 @@ interface DesignerEditPanelProps {
   ) => void;
   onUpdateSelectedImageCrop: (field: "cropX" | "cropY", value: number) => void;
   onOpenReplaceImage: () => void;
-  onOpenLayerActions: (element: HTMLElement) => void;
 }
 
 export const DesignerEditPanel = ({
@@ -25,8 +24,7 @@ export const DesignerEditPanel = ({
   onUpdateSelectedLayer,
   onUpdateLayerNumericField,
   onUpdateSelectedImageCrop,
-  onOpenReplaceImage,
-  onOpenLayerActions
+  onOpenReplaceImage
 }: DesignerEditPanelProps) => {
   if (!selectedLayer) {
     return (
@@ -144,19 +142,10 @@ export const DesignerEditPanel = ({
         </div>
         <div className="badge-row">
           <span className="badge badge--neutral">{selectedLayer.type}</span>
-          {!selectedLayer.visible ? <span className="badge badge--warning">hidden</span> : null}
+          <span className={`badge ${selectedLayer.visible ? "badge--accent" : "badge--warning"}`}>
+            {selectedLayer.visible ? "visible" : "hidden"}
+          </span>
           {selectedLayer.locked ? <span className="badge badge--neutral">locked</span> : null}
-          <button
-            type="button"
-            className="button--ghost inspector-summary__menu"
-            onPointerDown={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              onOpenLayerActions(event.currentTarget);
-            }}
-          >
-            Actions
-          </button>
         </div>
       </div>
       {!selectedLayer.visible ? (
@@ -201,6 +190,7 @@ export const DesignerEditPanel = ({
                 }
                 disabled={selectedLayer.locked}
               />
+              <small className="field-hint">Type your headline or job title</small>
             </label>
             <div className="inspector-grid">
               <label>
@@ -406,11 +396,11 @@ export const DesignerEditPanel = ({
         </div>
         <div className="inspector-grid">
           <label>
-            <span>X</span>
+            <span>X (mm)</span>
             <input type="number" value={selectedLayer.x} onChange={(event) => onUpdateLayerNumericField("x", event.target.value)} disabled={selectedLayer.locked} />
           </label>
           <label>
-            <span>Y</span>
+            <span>Y (mm)</span>
             <input type="number" value={selectedLayer.y} onChange={(event) => onUpdateLayerNumericField("y", event.target.value)} disabled={selectedLayer.locked} />
           </label>
           <label>

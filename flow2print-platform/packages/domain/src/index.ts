@@ -713,15 +713,6 @@ const createTemplateSeedLayers = (params: {
     }
 
     return [
-      shapeLayer({
-        name: "Logo Placeholder",
-        x: safeBox.x + 4,
-        y: safeBox.y + 4,
-        width: 12,
-        height: 12,
-        fill: "#dbe8ff",
-        variant: "logo-placeholder"
-      }),
       textLayer({
         name: "Name: Alex Rivera",
         text: "ALEX RIVERA",
@@ -749,6 +740,15 @@ const createTemplateSeedLayers = (params: {
         textAlign: "right",
         letterSpacing: 0.6,
         textTransform: "uppercase"
+      }),
+      shapeLayer({
+        name: "Logo Placeholder",
+        x: safeBox.x + 4,
+        y: safeBox.y + 4,
+        width: 12,
+        height: 12,
+        fill: "#dbe8ff",
+        variant: "logo-placeholder"
       }),
       textLayer({
         name: "Contact Info",

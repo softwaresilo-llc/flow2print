@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
 interface DesignerWorkspaceTopbarProps {
-  projectTitle: string;
+  projectTitle: ReactNode;
   statusLine: ReactNode;
   mode: "edit" | "review" | "finish";
   onModeChange: (mode: "edit" | "review" | "finish") => void;

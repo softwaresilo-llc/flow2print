@@ -1,7 +1,7 @@
 interface DesignerNavigatorPanelProps {
   title: string;
   summary: string;
-  description: string;
+  description?: string;
   content: React.ReactNode;
 }
 
@@ -15,7 +15,7 @@ export const DesignerNavigatorPanel = ({
     <div className="navigator-topbar">
       <div>
         <strong>{title}</strong>
-        <p>{description}</p>
+        {description ? <p>{description}</p> : null}
       </div>
       <span className="badge badge--neutral">{summary}</span>
     </div>

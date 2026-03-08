@@ -122,9 +122,25 @@ export const DesignerEditPanel = ({
 
   return (
     <div className="inspector-form">
-      <div className="inspector-summary">
-        <div>
-          <h4>{selectedLayer.name}</h4>
+      <div className="inspector-summary inspector-summary--row">
+        <div className="inspector-summary__identity">
+          <span className="material-symbols-outlined" aria-hidden="true">
+            {selectedLayer.type === "text"
+              ? "text_fields"
+              : selectedLayer.type === "image"
+                ? "image"
+                : selectedLayer.type === "shape"
+                  ? "pentagon"
+                  : selectedLayer.type === "qr"
+                    ? "qr_code_2"
+                    : selectedLayer.type === "barcode"
+                      ? "barcode"
+                      : "widgets"}
+          </span>
+          <div>
+            <p className="workspace-label">Selected item</p>
+            <h4>{selectedLayer.name}</h4>
+          </div>
         </div>
         <div className="badge-row">
           <span className="badge badge--neutral">{selectedLayer.type}</span>
@@ -153,10 +169,10 @@ export const DesignerEditPanel = ({
       ) : null}
       <div className="inspector-section">
         <div className="inspector-section__header">
-          <h4>Content</h4>
+          <h4>Field name</h4>
         </div>
         <label>
-          <span>Name</span>
+          <span>Layer label</span>
           <input
             value={selectedLayer.name}
             onChange={(event) =>
@@ -171,7 +187,7 @@ export const DesignerEditPanel = ({
         {selectedLayer.type === "text" ? (
           <>
             <label>
-              <span>Text</span>
+              <span>Content</span>
               <textarea
                 value={String(selectedLayer.metadata.text ?? "")}
                 onChange={(event) =>
@@ -386,7 +402,7 @@ export const DesignerEditPanel = ({
       </div>
       <div className="inspector-section">
         <div className="inspector-section__header">
-          <h4>Layout</h4>
+          <h4>Position &amp; size</h4>
         </div>
         <div className="inspector-grid">
           <label>

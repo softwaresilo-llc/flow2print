@@ -6,7 +6,6 @@ import { summarizeDocument } from "@flow2print/editor-engine";
 import { DesignerLauncher } from "./components/DesignerLauncher";
 import { DesignerEditPanel } from "./components/DesignerEditPanel";
 import { DesignerFinishPanel } from "./components/DesignerFinishPanel";
-import { DesignerAddPanel } from "./components/DesignerAddPanel";
 import { DesignerInspectorPanel } from "./components/DesignerInspectorPanel";
 import { DesignerNavigatorPanel } from "./components/DesignerNavigatorPanel";
 import { DesignerOverlay } from "./components/DesignerOverlay";
@@ -266,7 +265,7 @@ export const DesignerApp = () => {
   const [guidesVisible, setGuidesVisible] = useState(true);
   const [gridEnabled, setGridEnabled] = useState(true);
   const [snapEnabled, setSnapEnabled] = useState(true);
-  const [leftPanel, setLeftPanel] = useState<"add" | "layers" | "assets" | "history">("layers");
+  const [leftPanel, setLeftPanel] = useState<"layers" | "assets" | "history">("layers");
   const [rightPanel, setRightPanel] = useState<"edit" | "review" | "finish">("edit");
   const [cropMode, setCropMode] = useState(false);
   const [viewportSize, setViewportSize] = useState(() => ({
@@ -493,15 +492,6 @@ export const DesignerApp = () => {
       setSelectedLayerId(surface.layers[0]?.id ?? null);
     }
   }, [draftDocument, selectedLayerId, selectedSurfaceIndex]);
-
-  useEffect(() => {
-    if (!isEditableProject || !currentSurface) {
-      return;
-    }
-    if (currentSurface.layers.length === 0 && leftPanel !== "add") {
-      setLeftPanel("add");
-    }
-  }, [currentSurface, isEditableProject, leftPanel]);
 
   useEffect(() => {
     if (selectedLayerIds.length > 1) {
@@ -1782,52 +1772,14 @@ export const DesignerApp = () => {
       return null;
     }
 
-    if (leftPanel === "add") {
-      return (
-        <DesignerAddPanel
-          isEditableProject={isEditableProject}
-          saving={saving}
-          templates={compatibleTemplates.map((template) => ({
-            id: template.id,
-            displayName: template.displayName,
-            description: template.description
-          }))}
-          assets={availableImageAssets.map((asset) => ({
-            id: asset.id,
-            filename: asset.filename,
-            mimeType: asset.mimeType
-          }))}
-          onAddText={addTextLayer}
-          onAddShape={addShapeLayer}
-          onAddQr={addQrLayer}
-          onAddBarcode={addBarcodeLayer}
-          onUploadImage={() => openFilePicker("insert")}
-          onUseSampleImage={() => void createDemoAsset()}
-          onUseTemplate={(templateId) => void applyTemplate(templateId)}
-          onPlaceAsset={(assetId) => {
-            const asset = availableImageAssets.find((entry) => entry.id === assetId);
-            if (asset) {
-              placeExistingAsset(asset);
-            }
-          }}
-        />
-      );
-    }
-
     if (leftPanel === "layers") {
       return (
         <DesignerNavigatorPanel
           title="Layers"
           summary={`${currentSurface.layers.length} items`}
-          description={`Manage the objects on ${currentSurface.label}.`}
+          description=""
           content={
           <>
-            <div className="list-section-header">
-              <div>
-                <strong>Layers</strong>
-                <span>{currentSurface.layers.length} on {currentSurface.label}</span>
-              </div>
-            </div>
             <div className="layer-list">
               {currentSurface.layers.length === 0 ? <div className="empty-state">No items on this side yet.</div> : null}
               {currentSurface.layers.map((layer, index) => (
@@ -1893,26 +1845,83 @@ export const DesignerApp = () => {
                     <strong>{layer.name}</strong>
                     <small>{layer.type}</small>
                   </span>
-                  <div className="layer-row__meta">
-                    {!layer.visible ? <span className="badge badge--neutral">Hidden</span> : null}
-                    {layer.locked ? <span className="badge badge--neutral">Locked</span> : null}
-                  </div>
                   <div className="layer-row__actions">
-                    {isEditableProject ? (
-                      <button
-                        type="button"
-                        className="button--ghost button--ghost-compact"
-                        onPointerDown={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          openLayerContextMenuFromElement(event.currentTarget, layer.id);
-                        }}
-                      >
-                        Actions
-                      </button>
-                    ) : (
-                      <span className="layer-row__state">{layer.visible ? "Shown" : "Hidden"}</span>
-                    )}
+                    <button
+                      type="button"
+                      className={`icon-button ${layer.visible ? "" : "icon-button--muted"}`}
+                      aria-label={layer.visible ? "Hide layer" : "Show layer"}
+                      title={layer.visible ? "Hide layer" : "Show layer"}
+                      onPointerDown={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        if (!isEditableProject) {
+                          return;
+                        }
+                        setSelectedLayerIds([layer.id]);
+                        setSelectedLayerId(layer.id);
+                        captureHistory("Toggle visibility");
+                        updateDraftDocument((document) => ({
+                          ...document,
+                          surfaces: document.surfaces.map((surface, surfaceIndex) =>
+                            surfaceIndex === selectedSurfaceIndex
+                              ? {
+                                  ...surface,
+                                  layers: surface.layers.map((surfaceLayer) =>
+                                    surfaceLayer.id === layer.id
+                                      ? {
+                                          ...surfaceLayer,
+                                          visible: !surfaceLayer.visible
+                                        }
+                                      : surfaceLayer
+                                  )
+                                }
+                              : surface
+                          )
+                        }));
+                      }}
+                    >
+                      <span className="material-symbols-outlined" aria-hidden="true">
+                        {layer.visible ? "visibility" : "visibility_off"}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`icon-button ${layer.locked ? "icon-button--muted" : ""}`}
+                      aria-label={layer.locked ? "Unlock layer" : "Lock layer"}
+                      title={layer.locked ? "Unlock layer" : "Lock layer"}
+                      onPointerDown={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        if (!isEditableProject) {
+                          return;
+                        }
+                        setSelectedLayerIds([layer.id]);
+                        setSelectedLayerId(layer.id);
+                        captureHistory("Toggle lock");
+                        updateDraftDocument((document) => ({
+                          ...document,
+                          surfaces: document.surfaces.map((surface, surfaceIndex) =>
+                            surfaceIndex === selectedSurfaceIndex
+                              ? {
+                                  ...surface,
+                                  layers: surface.layers.map((surfaceLayer) =>
+                                    surfaceLayer.id === layer.id
+                                      ? {
+                                          ...surfaceLayer,
+                                          locked: !surfaceLayer.locked
+                                        }
+                                      : surfaceLayer
+                                  )
+                                }
+                              : surface
+                          )
+                        }));
+                      }}
+                    >
+                      <span className="material-symbols-outlined" aria-hidden="true">
+                        {layer.locked ? "lock" : "lock_open"}
+                      </span>
+                    </button>
                   </div>
                 </div>
               ))}
@@ -1928,15 +1937,9 @@ export const DesignerApp = () => {
         <DesignerNavigatorPanel
           title="Assets"
           summary={`${availableImageAssets.length} files`}
-          description="Reusable files for this project."
+          description=""
           content={
           <>
-            <div className="list-section-header">
-              <div>
-                <strong>Assets</strong>
-                <span>Reusable files for this project.</span>
-              </div>
-            </div>
             <div className="asset-list">
               {availableImageAssets.length === 0 ? <div className="empty-state">No uploaded image files yet.</div> : null}
               {availableImageAssets.map((asset) => (
@@ -1965,7 +1968,7 @@ export const DesignerApp = () => {
       <DesignerNavigatorPanel
         title="History"
         summary={`${historyPast.length} changes`}
-        description="Recent local editing actions in this session."
+        description=""
         content={
           <>
             <div className="history-summary">
@@ -1984,12 +1987,6 @@ export const DesignerApp = () => {
               <div className="kv-item">
                 <strong>Undo available</strong>
                 <span>{historyPast.length}</span>
-              </div>
-            </div>
-            <div className="list-section-header">
-              <div>
-                <strong>Recent changes</strong>
-                <span>Latest edits in this browser session.</span>
               </div>
             </div>
             <div className="history-list">
@@ -2028,14 +2025,21 @@ export const DesignerApp = () => {
     return (
       <div className={`workspace-shell ${isEmbedded ? "workspace-shell--embedded" : ""}`}>
         <DesignerWorkspaceTopbar
-          projectTitle={project.title}
+          projectTitle={
+            <span className="workspace-title__brand">
+              <span className="material-symbols-outlined" aria-hidden="true">
+                print
+              </span>
+              <span>{project.title}</span>
+            </span>
+          }
           statusLine={
             <>
-              <span className={badgeTone(project.status)}>{humanizeStatus(project.status)}</span>
-              <span className="workspace-statusline__text">
-                {hasUnsavedChanges ? "Changes not saved" : "All changes saved"}
+              <span className="workspace-statusline__label">Status:</span>
+              <span className={`status-pill ${saving ? "status-pill--working" : hasUnsavedChanges ? "status-pill--warning" : "status-pill--saved"}`}>
+                <span className="status-pill__dot" aria-hidden="true" />
+                {saving ? "Saving" : hasUnsavedChanges ? "Unsaved" : "Saved"}
               </span>
-              {hasBlockingIssues && !isBlankSurface ? <span className="badge badge--danger">Needs attention</span> : null}
             </>
           }
           mode={rightPanel}
@@ -2069,38 +2073,10 @@ export const DesignerApp = () => {
           }
           actions={
             <>
-              {isEditableProject && rightPanel === "edit" ? (
-                <button type="button" className="button--ghost" onClick={() => void saveDraftDocument()} disabled={!hasUnsavedChanges || saving}>
-                  {saving ? "Saving..." : "Save draft"}
-                </button>
-              ) : null}
-              {isEditableProject && rightPanel === "edit" ? (
-                <button type="button" onClick={() => setRightPanel("review")}>
-                  Check
-                </button>
-              ) : null}
-              {isEditableProject && rightPanel === "review" ? (
-                <>
-                  <button type="button" className="button--ghost" onClick={() => setRightPanel("edit")}>
-                    Back to design
-                  </button>
-                  <button type="button" onClick={() => void finalizeProject()} disabled={finalizing || hasBlockingIssues}>
-                    {finalizing ? "Creating..." : "Create print files"}
-                  </button>
-                </>
-              ) : null}
-              {!isEditableProject && rightPanel === "finish" ? (
-                <button type="button" onClick={openExportPanel}>
-                  Open files
-                </button>
-              ) : null}
-              {!isEditableProject && rightPanel === "edit" ? (
-                <button type="button" onClick={() => setRightPanel("finish")}>
-                  Open files
-                </button>
-              ) : null}
               <button type="button" className="button--ghost" onClick={() => setOverlay("menu")}>
-                More
+                <span className="material-symbols-outlined" aria-hidden="true">
+                  more_horiz
+                </span>
               </button>
             </>
           }
@@ -2110,9 +2086,7 @@ export const DesignerApp = () => {
           className={`workspace-layout ${
             rightPanel === "edit" && !isCompactViewport && isEditableProject
               ? "workspace-layout--with-sidebar"
-              : isReadOnlyPreview
-                ? "workspace-layout--preview"
-                : ""
+              : "workspace-layout--preview"
           }`}
         >
           {rightPanel === "edit" && isEditableProject ? (
@@ -2126,6 +2100,9 @@ export const DesignerApp = () => {
                   setOverlay("navigator");
                 }
               }}
+              onAddText={addTextLayer}
+              onAddImage={() => openFilePicker("insert")}
+              onAddShape={addShapeLayer}
               onOpenMenu={() => setOverlay("menu")}
             />
           ) : null}
@@ -2136,15 +2113,14 @@ export const DesignerApp = () => {
 
           <section className="workspace-stage workspace-stage--primary">
             <div className="stage-header stage-header--editor">
-              <div>
-                <h2>{currentSurface.label}</h2>
-                <p className="stage-header__meta">
-                  Print area {currentSurface.artboard.width} × {currentSurface.artboard.height} mm
-                </p>
+              <div className="stage-header__crumbs">
+                <span>Workspace /</span>
+                <h2>
+                  {currentSurface.label} ({currentSurface.artboard.width}×{currentSurface.artboard.height}mm)
+                </h2>
               </div>
               <div className="badge-row">
-                <span className="badge badge--neutral">{currentSurface.layers.length} items</span>
-                {currentTemplate?.displayName ? <span className="badge badge--neutral">{currentTemplate.displayName}</span> : null}
+                <span className="badge badge--neutral">{currentSurface.layers.length} items on canvas</span>
               </div>
             </div>
             {hasBlockingIssues && !isBlankSurface && rightPanel !== "review" ? (
@@ -2288,28 +2264,7 @@ export const DesignerApp = () => {
                   {currentSurface.layers.length === 0 ? (
                     <div className="artboard__empty">
                       <strong>Start this side</strong>
-                      <p>Add the first item for this side.</p>
-                      <div className="artboard__empty-actions">
-                        <button type="button" onClick={addTextLayer} disabled={project.status === "finalized"}>
-                          Add text
-                        </button>
-                        <button
-                          type="button"
-                          className="button--ghost"
-                          onClick={() => openFilePicker("insert")}
-                          disabled={project.status === "finalized" || saving}
-                        >
-                          {saving ? "Uploading..." : "Upload image"}
-                        </button>
-                        <button
-                          type="button"
-                          className="button--ghost"
-                          onClick={() => setOverlay("templates")}
-                          disabled={templateBusy}
-                        >
-                          {templateBusy ? "Changing..." : "Use template"}
-                        </button>
-                      </div>
+                      <p>Use the left toolbar to add text, images, or shapes.</p>
                     </div>
                   ) : null}
                   <FabricCanvasStage
@@ -2333,30 +2288,52 @@ export const DesignerApp = () => {
                   />
                 </div>
               </div>
-              <DesignerSideFilmstrip
-                surfaces={draftDocument.surfaces}
-                selectedSurfaceIndex={selectedSurfaceIndex}
-                isEditableProject={isEditableProject && rightPanel === "edit"}
-                onSelectSurface={selectSurface}
-                onAddSurface={addSurface}
-                onDuplicateSurface={duplicateCurrentSurface}
-                onRemoveSurface={removeCurrentSurface}
-              />
+              <div className="canvas-dock" aria-label="Canvas controls">
+                <button type="button" className="canvas-dock__button" onClick={() => setZoom((value) => clamp(value + 0.1, 0.5, 2))}>
+                  <span className="material-symbols-outlined" aria-hidden="true">
+                    zoom_in
+                  </span>
+                </button>
+                <button type="button" className="canvas-dock__button" onClick={() => setGuidesVisible((value) => !value)}>
+                  <span className="material-symbols-outlined" aria-hidden="true">
+                    pan_tool
+                  </span>
+                </button>
+                <button type="button" className={`canvas-dock__button ${gridEnabled ? "canvas-dock__button--active" : ""}`} onClick={() => setGridEnabled((value) => !value)}>
+                  <span className="material-symbols-outlined" aria-hidden="true">
+                    grid_4x4
+                  </span>
+                </button>
+              </div>
+              {draftDocument.surfaces.length > 1 ? (
+                <DesignerSideFilmstrip
+                  surfaces={draftDocument.surfaces}
+                  selectedSurfaceIndex={selectedSurfaceIndex}
+                  isEditableProject={isEditableProject && rightPanel === "edit"}
+                  onSelectSurface={selectSurface}
+                  onAddSurface={addSurface}
+                  onDuplicateSurface={duplicateCurrentSurface}
+                  onRemoveSurface={removeCurrentSurface}
+                />
+              ) : null}
             </div>
 
           </section>
 
           <aside className="workspace-sidebar workspace-sidebar--inspector">
             <DesignerInspectorPanel
-              title={rightPanel === "edit" ? (isEditableProject ? "Item" : "Preview") : rightPanel === "review" ? "Check" : "Files"}
+              title={rightPanel === "edit" ? (isEditableProject ? "Item Properties" : "Preview") : rightPanel === "review" ? "Pre-flight Check" : "Files"}
               description={
                 rightPanel === "edit"
                   ? isEditableProject
-                    ? "Select something on the page to edit it."
+                    ? undefined
                     : "Review the locked layout and generated output."
                   : rightPanel === "review"
-                    ? "Fix issues before creating files."
+                    ? "Review print issues before generating output."
                     : "Open the latest generated files."
+              }
+              badge={
+                rightPanel === "edit" && selectedLayer ? <span className="badge badge--neutral">Active</span> : null
               }
             >
               {rightPanel === "edit" ? (
@@ -2389,6 +2366,7 @@ export const DesignerApp = () => {
                 <DesignerReviewPanel
                   hasBlockingIssues={hasBlockingIssues}
                   isEditableProject={isEditableProject}
+                  finalizing={finalizing}
                   canShowSelectedItem={Boolean(selectedLayer && !selectedLayer.visible)}
                   liveChecks={liveChecks}
                   preflightStatusClassName={badgeTone(project.preflightReport?.status ?? null)}
@@ -2396,6 +2374,7 @@ export const DesignerApp = () => {
                   preflightIssues={project.preflightReport?.issues ?? []}
                   onShowSelectedItem={() => toggleSelectedLayerFlag("visible")}
                   onBackToEditing={() => setRightPanel("edit")}
+                  onCreatePrintFiles={() => void finalizeProject()}
                 />
               ) : null}
               {rightPanel === "finish" ? (
@@ -2412,6 +2391,16 @@ export const DesignerApp = () => {
             </DesignerInspectorPanel>
           </aside>
         </section>
+        <footer className="workspace-footer">
+          <div className="workspace-footer__group">
+            <span>X: {Math.round(selectedLayer?.x ?? 0)}px</span>
+            <span>Y: {Math.round(selectedLayer?.y ?? 0)}px</span>
+          </div>
+          <div className="workspace-footer__group">
+            <span>{project.externalProductRef.replace("SKU-", "").replaceAll("-", " ")}</span>
+            <span className="workspace-footer__status">Press-ready: PDF/X-1a</span>
+          </div>
+        </footer>
         <input
           ref={fileInputRef}
           className="visually-hidden"
@@ -2436,13 +2425,11 @@ export const DesignerApp = () => {
             : overlay === "projects"
               ? "Open another project"
               : overlay === "navigator"
-                ? leftPanel === "add"
-                  ? "Add elements"
-                  : leftPanel === "layers"
+                ? leftPanel === "layers"
                   ? "Layers"
                   : leftPanel === "assets"
                     ? "Assets"
-                    : "History"
+                  : "History"
                 : "Workspace options"
         }
         description={
@@ -2451,9 +2438,7 @@ export const DesignerApp = () => {
             : overlay === "projects"
               ? "Open another saved project."
               : overlay === "navigator"
-                ? leftPanel === "add"
-                  ? "Insert content without covering the stage."
-                  : "Support panels that stay out of the main design area."
+                ? "Support panels that stay out of the main design area."
               : "Project and setup actions that are not part of the canvas."
         }
         onClose={() => setOverlay(null)}

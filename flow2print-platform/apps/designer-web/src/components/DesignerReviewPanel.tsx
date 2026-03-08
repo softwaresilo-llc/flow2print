@@ -8,6 +8,7 @@ interface ReviewIssue {
 interface DesignerReviewPanelProps {
   hasBlockingIssues: boolean;
   isEditableProject: boolean;
+  finalizing: boolean;
   canShowSelectedItem: boolean;
   liveChecks: ReviewIssue[];
   preflightStatusClassName: string;
@@ -15,18 +16,21 @@ interface DesignerReviewPanelProps {
   preflightIssues: ReviewIssue[];
   onShowSelectedItem: () => void;
   onBackToEditing: () => void;
+  onCreatePrintFiles: () => void;
 }
 
 export const DesignerReviewPanel = ({
   hasBlockingIssues,
   isEditableProject,
+  finalizing,
   canShowSelectedItem,
   liveChecks,
   preflightStatusClassName,
   preflightStatusLabel,
   preflightIssues,
   onShowSelectedItem,
-  onBackToEditing
+  onBackToEditing,
+  onCreatePrintFiles
 }: DesignerReviewPanelProps) => {
   const blockingIssues = liveChecks.filter((issue) => issue.severity === "blocking");
   const warningIssues = liveChecks.filter((issue) => issue.severity === "warning");
@@ -52,6 +56,9 @@ export const DesignerReviewPanel = ({
             ) : null}
             <button type="button" className="button--ghost" onClick={onBackToEditing}>
               Back to design
+            </button>
+            <button type="button" onClick={onCreatePrintFiles} disabled={finalizing || hasBlockingIssues}>
+              {finalizing ? "Creating..." : "Create print files"}
             </button>
           </div>
         ) : null}

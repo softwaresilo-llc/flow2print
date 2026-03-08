@@ -1,18 +1,23 @@
 interface DesignerToolRailProps {
   isEditableProject: boolean;
   saving: boolean;
-  activeUtilityPanel: "add" | "layers" | "assets" | "history";
-  onOpenUtilityPanel: (panel: "add" | "layers" | "assets" | "history") => void;
+  activeUtilityPanel: "layers" | "assets" | "history";
+  onOpenUtilityPanel: (panel: "layers" | "assets" | "history") => void;
+  onAddText: () => void;
+  onAddImage: () => void;
+  onAddShape: () => void;
   onOpenMenu: () => void;
 }
 
 const ToolRailButton = ({
+  icon,
   label,
   title,
   active = false,
   disabled = false,
   onClick
 }: {
+  icon: string;
   label: string;
   title: string;
   active?: boolean;
@@ -27,6 +32,9 @@ const ToolRailButton = ({
     disabled={disabled}
     onClick={onClick}
   >
+    <span className="tool-rail__icon material-symbols-outlined" aria-hidden="true">
+      {icon}
+    </span>
     <span className="tool-rail__label">{label}</span>
   </button>
 );
@@ -36,27 +44,46 @@ export const DesignerToolRail = ({
   saving,
   activeUtilityPanel,
   onOpenUtilityPanel,
+  onAddText,
+  onAddImage,
+  onAddShape,
   onOpenMenu
 }: DesignerToolRailProps) => (
   <aside className="tool-rail" aria-label="Design tools">
     <div className="tool-rail__group">
       <ToolRailButton
-        label={saving ? "Busy" : "Add"}
-        title="Open add elements"
-        active={activeUtilityPanel === "add"}
-        disabled={!isEditableProject && activeUtilityPanel !== "add"}
-        onClick={() => onOpenUtilityPanel("add")}
+        icon="title"
+        label="Text"
+        title="Add text"
+        disabled={!isEditableProject}
+        onClick={onAddText}
+      />
+      <ToolRailButton
+        icon="image"
+        label="Image"
+        title={saving ? "Uploading image" : "Upload image"}
+        disabled={!isEditableProject || saving}
+        onClick={onAddImage}
+      />
+      <ToolRailButton
+        icon="pentagon"
+        label="Shape"
+        title="Add shape"
+        disabled={!isEditableProject}
+        onClick={onAddShape}
       />
     </div>
     <div className="tool-rail__separator" />
     <div className="tool-rail__group">
       <ToolRailButton
+        icon="layers"
         label="Layers"
         title="Open layers"
         active={activeUtilityPanel === "layers"}
         onClick={() => onOpenUtilityPanel("layers")}
       />
       <ToolRailButton
+        icon="folder_open"
         label="Assets"
         title="Open assets"
         active={activeUtilityPanel === "assets"}
@@ -65,6 +92,7 @@ export const DesignerToolRail = ({
     </div>
     <div className="tool-rail__group">
       <ToolRailButton
+        icon="history"
         label="History"
         title="Open history"
         active={activeUtilityPanel === "history"}
@@ -72,6 +100,6 @@ export const DesignerToolRail = ({
       />
     </div>
     <div className="tool-rail__spacer" />
-    <ToolRailButton label="More" title="More actions" onClick={onOpenMenu} />
+    <ToolRailButton icon="apps" label="More" title="More actions" onClick={onOpenMenu} />
   </aside>
 );

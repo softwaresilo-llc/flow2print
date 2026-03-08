@@ -725,13 +725,6 @@ export const FabricCanvasStage = forwardRef<FabricCanvasStageHandle, FabricCanva
             canvas.discardActiveObject();
           }
           canvas.renderAll();
-          const context = (canvas as Canvas & { contextContainer?: CanvasRenderingContext2D }).contextContainer;
-          if (context) {
-            context.save();
-            context.fillStyle = "rgba(255, 0, 0, 0.35)";
-            context.fillRect(12, 12, 28, 28);
-            context.restore();
-          }
           if (canvasElementRef.current) {
             canvasElementRef.current.dataset.renderStatus = "ready";
           }

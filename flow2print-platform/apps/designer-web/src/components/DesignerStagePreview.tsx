@@ -61,6 +61,26 @@ const renderShapeContent = (layer: DesignerLayer) => {
 
 const renderTextContent = (layer: DesignerLayer, scale: number) => {
   const text = String(layer.metadata.text ?? layer.name);
+  const variant = String(layer.metadata.variant ?? "");
+  if (variant === "contact-info") {
+    const [email, phone] = text.split("\n");
+    return (
+      <div className="stage-preview__contact">
+        <div>
+          <span className="material-symbols-outlined" aria-hidden="true">
+            mail
+          </span>
+          <span>{email}</span>
+        </div>
+        <div>
+          <span className="material-symbols-outlined" aria-hidden="true">
+            call
+          </span>
+          <span>{phone}</span>
+        </div>
+      </div>
+    );
+  }
   return (
     <div
       className="stage-preview__text"
@@ -69,7 +89,8 @@ const renderTextContent = (layer: DesignerLayer, scale: number) => {
         fontSize: Math.max(11, Number(layer.metadata.fontSize ?? 16) * scale * 0.22),
         fontWeight: String(layer.metadata.fontWeight ?? "600"),
         textAlign: String(layer.metadata.textAlign ?? "left") as CSSProperties["textAlign"],
-        letterSpacing: Number(layer.metadata.letterSpacing ?? 0)
+        letterSpacing: Number(layer.metadata.letterSpacing ?? 0),
+        textTransform: String(layer.metadata.textTransform ?? "uppercase") as CSSProperties["textTransform"]
       }}
     >
       {text.split("\n").map((line, index) => (
@@ -172,6 +193,15 @@ const renderLayerContent = (
       {layer.type === "text" ? renderTextContent(layer, scale) : null}
       {layer.type === "shape" ? renderShapeContent(layer) : null}
       {layer.type === "qr" || layer.type === "barcode" ? renderQrOrBarcodeContent(layer) : null}
+      {selectedLayerIds.includes(layer.id) ? (
+        <>
+          <span className="stage-preview__handle stage-preview__handle--tl" />
+          <span className="stage-preview__handle stage-preview__handle--tr" />
+          <span className="stage-preview__handle stage-preview__handle--bl" />
+          <span className="stage-preview__handle stage-preview__handle--br" />
+          <span className="stage-preview__handle stage-preview__handle--mr" />
+        </>
+      ) : null}
     </div>
   );
 };

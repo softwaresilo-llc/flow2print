@@ -632,6 +632,13 @@ const createTemplateSeedLayers = (params: {
     y: number;
     width: number;
     height: number;
+    color?: string;
+    fontSize?: number;
+    fontWeight?: string;
+    textAlign?: "left" | "center" | "right";
+    letterSpacing?: number;
+    variant?: string;
+    textTransform?: "uppercase" | "none";
   }) => ({
     id: `lyr_${randomUUID()}`,
     type: "text" as const,
@@ -644,7 +651,16 @@ const createTemplateSeedLayers = (params: {
     height: input.height,
     rotation: 0,
     opacity: 1,
-    metadata: { text: input.text }
+    metadata: {
+      text: input.text,
+      color: input.color,
+      fontSize: input.fontSize,
+      fontWeight: input.fontWeight,
+      textAlign: input.textAlign,
+      letterSpacing: input.letterSpacing,
+      variant: input.variant,
+      textTransform: input.textTransform
+    }
   });
 
   const shapeLayer = (input: {
@@ -654,6 +670,7 @@ const createTemplateSeedLayers = (params: {
     width: number;
     height: number;
     fill: string;
+    variant?: string;
   }) => ({
     id: `lyr_${randomUUID()}`,
     type: "shape" as const,
@@ -666,7 +683,7 @@ const createTemplateSeedLayers = (params: {
     height: input.height,
     rotation: 0,
     opacity: 1,
-    metadata: { fill: input.fill }
+    metadata: { fill: input.fill, variant: input.variant }
   });
 
   if (!templateId) {
@@ -702,31 +719,50 @@ const createTemplateSeedLayers = (params: {
         y: safeBox.y + 4,
         width: 12,
         height: 12,
-        fill: "#dbe8ff"
+        fill: "#dbe8ff",
+        variant: "logo-placeholder"
       }),
       textLayer({
         name: "Name: Alex Rivera",
         text: "ALEX RIVERA",
-        x: safeBox.x + 44,
+        x: safeBox.x + 40,
         y: safeBox.y + 8,
-        width: Math.max(24, safeBox.width - 48),
-        height: 9
+        width: 28,
+        height: 9,
+        color: "#1f2937",
+        fontSize: 17,
+        fontWeight: "700",
+        textAlign: "right",
+        letterSpacing: 0.4,
+        textTransform: "uppercase"
       }),
       textLayer({
         name: "Title: Senior UI Designer",
         text: "SENIOR UI DESIGNER",
-        x: safeBox.x + 44,
-        y: safeBox.y + 17,
-        width: Math.max(24, safeBox.width - 48),
-        height: 7
+        x: safeBox.x + 40,
+        y: safeBox.y + 19,
+        width: 28,
+        height: 7,
+        color: "#3b82f6",
+        fontSize: 9,
+        fontWeight: "700",
+        textAlign: "right",
+        letterSpacing: 0.6,
+        textTransform: "uppercase"
       }),
       textLayer({
         name: "Contact Info",
         text: "hello@modernui.design\n+1 (555) 000-1234",
-        x: safeBox.x + 7,
+        x: safeBox.x + 9,
         y: safeBox.y + safeBox.height - 12,
-        width: Math.max(26, safeBox.width - 14),
-        height: 9
+        width: 37,
+        height: 9,
+        color: "#64748b",
+        fontSize: 7.8,
+        fontWeight: "500",
+        textAlign: "left",
+        variant: "contact-info",
+        textTransform: "none"
       }),
       shapeLayer({
         name: "Accent Panel",
@@ -734,7 +770,8 @@ const createTemplateSeedLayers = (params: {
         y: safeBox.y + 3,
         width: 10,
         height: safeBox.height - 6,
-        fill: "#f3f7fd"
+        fill: "#f3f7fd",
+        variant: "accent-panel"
       })
     ];
   }

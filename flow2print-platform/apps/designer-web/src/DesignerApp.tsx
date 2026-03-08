@@ -205,6 +205,9 @@ const layerPreviewIcon = (layer: DesignerLayer) => {
   return "widgets";
 };
 
+const getPreferredLayerId = (surface: DesignerSurface | undefined) =>
+  surface?.layers.find((layer) => layer.type === "text")?.id ?? surface?.layers[0]?.id ?? null;
+
 const readJson = async <T,>(response: Response) => {
   if (!response.ok) {
     const body = await response.text();
@@ -371,8 +374,9 @@ export const DesignerApp = () => {
         setSelectedSurfaceIndex(0);
         setZoom(1);
         setLeftPanel("layers");
-        setSelectedLayerId(projectData.document.surfaces[0]?.layers[0]?.id ?? null);
-        setSelectedLayerIds(projectData.document.surfaces[0]?.layers[0]?.id ? [projectData.document.surfaces[0].layers[0].id] : []);
+        const initialLayerId = getPreferredLayerId(projectData.document.surfaces[0]);
+        setSelectedLayerId(initialLayerId);
+        setSelectedLayerIds(initialLayerId ? [initialLayerId] : []);
         setSelectedTemplateId(projectData.templateId);
         setRightPanel(projectData.status === "finalized" || projectData.status === "ordered" ? "finish" : "edit");
         void Promise.allSettled([loadTemplates(projectData.blueprintId), loadRecentProjects()]);
@@ -432,14 +436,11 @@ export const DesignerApp = () => {
     setSelectedTemplateId(projectData.templateId);
     setLeftPanel("layers");
     setRightPanel(projectData.status === "finalized" || projectData.status === "ordered" ? "finish" : "edit");
-    setSelectedLayerId(projectData.document.surfaces[selectedSurfaceIndex]?.layers[0]?.id ?? projectData.document.surfaces[0]?.layers[0]?.id ?? null);
-    setSelectedLayerIds(
-      projectData.document.surfaces[selectedSurfaceIndex]?.layers[0]?.id
-        ? [projectData.document.surfaces[selectedSurfaceIndex].layers[0].id]
-        : projectData.document.surfaces[0]?.layers[0]?.id
-          ? [projectData.document.surfaces[0].layers[0].id]
-          : []
-    );
+    const surfaceLayerId =
+      getPreferredLayerId(projectData.document.surfaces[selectedSurfaceIndex]) ??
+      getPreferredLayerId(projectData.document.surfaces[0]);
+    setSelectedLayerId(surfaceLayerId);
+    setSelectedLayerIds(surfaceLayerId ? [surfaceLayerId] : []);
     void Promise.allSettled([loadTemplates(projectData.blueprintId), loadRecentProjects()]);
   };
 
@@ -492,8 +493,9 @@ export const DesignerApp = () => {
       return;
     }
     if (!selectedLayerId || !surface.layers.some((layer) => layer.id === selectedLayerId)) {
-      setSelectedLayerIds(surface.layers[0]?.id ? [surface.layers[0].id] : []);
-      setSelectedLayerId(surface.layers[0]?.id ?? null);
+      const nextLayerId = getPreferredLayerId(surface);
+      setSelectedLayerIds(nextLayerId ? [nextLayerId] : []);
+      setSelectedLayerId(nextLayerId);
     }
   }, [draftDocument, selectedLayerId, selectedSurfaceIndex]);
 

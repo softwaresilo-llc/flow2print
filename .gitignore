@@ -29,8 +29,11 @@ coverage/
 *.tsbuildinfo
 
 # Runtime / local data
-.flow2print-state.json
 .flow2print-runtime/
+.flow2print-runtime*/
+.flow2print-state.json
+.flow2print-object-storage/
+.flow2print-object-storage*/
 tmp/
 temp/
 

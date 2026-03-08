@@ -1,12 +1,36 @@
 import assert from "node:assert/strict";
-import { access, mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { access } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 test("runtime store finalization creates report and artifacts", async () => {
-  const tempDir = await mkdtemp(join(tmpdir(), "flow2print-store-"));
-  process.env.FLOW2PRINT_STATE_FILE = join(tempDir, "state.json");
+  const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
+  const schema = `rt_${randomUUID().replace(/-/g, "")}`;
+  const baseDatabaseUrl =
+    process.env.DATABASE_URL ??
+    process.env.FLOW2PRINT_POSTGRES_URL ??
+    "postgresql://flow2print:flow2print@127.0.0.1:55433/flow2print";
+  const databaseUrl = `${baseDatabaseUrl}${baseDatabaseUrl.includes("?") ? "&" : "?"}schema=${schema}`;
+  const dataDir = resolve(repoRoot, `.flow2print-runtime-test-${schema}`);
+
+  execFileSync("psql", [baseDatabaseUrl, "-c", `CREATE SCHEMA IF NOT EXISTS "${schema}"`], {
+    cwd: repoRoot,
+    stdio: "ignore"
+  });
+  execFileSync("pnpm", ["--filter", "@flow2print/database", "db:migrate:deploy"], {
+    cwd: repoRoot,
+    env: {
+      ...process.env,
+      DATABASE_URL: databaseUrl
+    },
+    stdio: "ignore"
+  });
+
+  process.env.DATABASE_URL = databaseUrl;
+  process.env.FLOW2PRINT_DATA_DIR = dataDir;
 
   const { getRuntimeStore } = await import("./index.js");
   const store = getRuntimeStore();
@@ -57,13 +81,17 @@ test("runtime store finalization creates report and artifacts", async () => {
   assert.equal(commerceStatus?.artifacts.length, 3);
   assert.equal(commerceStatus?.projectVersionId, finalized.version.id);
   assert.equal(commerceStatus?.preflightStatus, "warn");
-  await access(join(tempDir, ".flow2print-runtime", "artifacts", launch.projectId, finalized.version.id, "preview.png"));
-  await access(join(tempDir, ".flow2print-runtime", "artifacts", launch.projectId, finalized.version.id, "production.pdf"));
-  await access(join(tempDir, ".flow2print-runtime", "artifacts", launch.projectId, finalized.version.id, "proof.pdf"));
+  await access(join(dataDir, "artifacts", launch.projectId, finalized.version.id, "preview.png"));
+  await access(join(dataDir, "artifacts", launch.projectId, finalized.version.id, "production.pdf"));
+  await access(join(dataDir, "artifacts", launch.projectId, finalized.version.id, "proof.pdf"));
   assert.equal(quoteLink?.state, "quote_linked");
   assert.equal(orderLink?.state, "order_linked");
   assert.equal(persistedLink?.externalOrderRef, "order-1000");
 
-  await rm(tempDir, { recursive: true, force: true });
-  delete process.env.FLOW2PRINT_STATE_FILE;
+  execFileSync("psql", [baseDatabaseUrl, "-c", `DROP SCHEMA IF EXISTS "${schema}" CASCADE`], {
+    cwd: repoRoot,
+    stdio: "ignore"
+  });
+  delete process.env.DATABASE_URL;
+  delete process.env.FLOW2PRINT_DATA_DIR;
 });

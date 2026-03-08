@@ -18,6 +18,7 @@ import {
   Spin,
   Statistic,
   Table,
+  Tabs,
   type TableColumnsType,
   Tag,
   Typography
@@ -28,6 +29,7 @@ import {
   EditOutlined,
   EyeOutlined,
   FolderOpenOutlined,
+  InfoCircleOutlined,
   LockOutlined,
   MailOutlined,
   PlusCircleOutlined,
@@ -38,7 +40,7 @@ import {
 } from "@ant-design/icons";
 
 import { authProvider } from "./providers/authProvider.js";
-import { requestJson, readSessionToken, resolveApiUrl, resolveDesignerUrl } from "./providers/api.js";
+import { buildHeaders, requestJson, readSessionToken, resolveApiUrl, resolveDesignerUrl } from "./providers/api.js";
 import {
   adminResources,
   resourceRouteLookup,
@@ -50,7 +52,47 @@ import {
 type AdminRecord = Record<string, unknown> & { id: string };
 type BlueprintOption = { id: string; displayName: string };
 type TemplateOption = { id: string; displayName: string; blueprintId: string };
+type AssetOption = { id: string; filename: string };
+type FontFamilyOption = { id: string; displayName: string };
 type RoleOption = { id: string; label: string };
+type SystemInfoResponse = {
+  runtime: {
+    framework: string;
+    nodeVersion: string;
+    platform: string;
+    arch: string;
+    timezone: string;
+    now: string;
+    uptimeSeconds: number;
+  };
+  persistence: {
+    engine: string;
+    databaseUrlConfigured: boolean;
+    dataDir: string | null;
+  };
+  applications: {
+    portalAppUrl: string | null;
+    designerAppUrl: string | null;
+    adminAppUrl: string | null;
+    commerceBaseUrl: string | null;
+    publicApiUrl: string | null;
+  };
+  limits: {
+    maxUploadMb: number;
+    maxImageEdgePx: number;
+    sessionTtlHours: number;
+    passwordResetTtlMinutes: number;
+  };
+  catalog: {
+    projects: number;
+    templates: number;
+    blueprints: number;
+    assets: number;
+    users: number;
+    emailTemplates: number;
+    apiTokens: number;
+  };
+};
 type CrudResourceName = Exclude<AdminResourceName, "overview" | "account">;
 
 const { Title, Paragraph, Text } = Typography;
@@ -82,6 +124,9 @@ const endpointMap: Record<AdminResourceName, string> = {
   templates: "templates",
   blueprints: "blueprints",
   assets: "assets",
+  "asset-variants": "asset-variants",
+  "font-families": "font-families",
+  "font-files": "font-files",
   users: "users",
   roles: "roles",
   "api-tokens": "api-tokens",
@@ -105,12 +150,29 @@ const formatDate = (value: unknown) => {
   }
 };
 
+const formatBytes = (value: unknown) => {
+  if (typeof value !== "number" || Number.isNaN(value) || value <= 0) {
+    return "—";
+  }
+
+  const units = ["B", "KB", "MB", "GB"];
+  let size = value;
+  let unitIndex = 0;
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+  return `${size.toFixed(size >= 10 || unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
+};
+
 const formatValue = (
   field: ResourceField,
   value: unknown,
   blueprintMap: Record<string, string>,
   templateMap: Record<string, string>,
-  roleMap: Record<string, string>
+  roleMap: Record<string, string>,
+  assetMap: Record<string, string> = {},
+  fontFamilyMap: Record<string, string> = {}
 ) => {
   if (field.key === "blueprintId" && typeof value === "string") {
     return blueprintMap[value] ?? value;
@@ -124,8 +186,20 @@ const formatValue = (
     return roleMap[value] ?? value;
   }
 
+  if (field.key === "assetId" && typeof value === "string") {
+    return assetMap[value] ?? value;
+  }
+
+  if (field.key === "fontFamilyId" && typeof value === "string") {
+    return fontFamilyMap[value] ?? value;
+  }
+
   if (field.type === "date") {
     return formatDate(value);
+  }
+
+  if (field.key === "sizeBytes" || field.key === "byteSize") {
+    return formatBytes(value);
   }
 
   if (field.type === "status") {
@@ -173,6 +247,9 @@ const getOptionLabel = (field: ResourceField, value: unknown, blueprints: Bluepr
   }
   return field.options?.find((option) => option.value === value)?.label ?? value;
 };
+
+const getAssetLabel = (record: AdminRecord) => String(record.filename ?? record.id);
+const getFontFamilyLabel = (record: AdminRecord) => String(record.displayName ?? record.familyKey ?? record.id);
 
 const buildResourceUrl = (resource: AdminResourceName, id?: string) =>
   id ? `/v1/${endpointMap[resource]}/${id}` : `/v1/${endpointMap[resource]}`;
@@ -316,6 +393,81 @@ const useRoleOptions = () => {
   return roles;
 };
 
+const useAssetOptions = () => {
+  const [assets, setAssets] = useState<AssetOption[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    loadList("assets")
+      .then((records) => {
+        if (active) {
+          setAssets(records.map((record) => ({ id: String(record.id), filename: getAssetLabel(record) })));
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setAssets([]);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  return assets;
+};
+
+const useFontFamilyOptions = () => {
+  const [families, setFamilies] = useState<FontFamilyOption[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    loadList("font-families")
+      .then((records) => {
+        if (active) {
+          setFamilies(records.map((record) => ({ id: String(record.id), displayName: getFontFamilyLabel(record) })));
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setFamilies([]);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  return families;
+};
+
+const useSystemSettings = () => {
+  const [settings, setSettings] = useState<AdminRecord | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    requestJson<AdminRecord>("/v1/settings")
+      .then((payload) => {
+        if (active) {
+          setSettings(payload);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setSettings(null);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  return settings;
+};
+
 const useEmailPreview = (templateId: string | null) => {
   const [preview, setPreview] = useState<{ subject: string; html: string; previewText: string } | null>(null);
 
@@ -441,6 +593,8 @@ const buildColumns = (
   blueprintMap: Record<string, string>,
   templateMap: Record<string, string>,
   roleMap: Record<string, string>,
+  assetMap: Record<string, string>,
+  fontFamilyMap: Record<string, string>,
   onDelete: (record: AdminRecord) => Promise<void>,
   deletingId: string | null
 ): TableColumnsType<AdminRecord> => {
@@ -450,7 +604,8 @@ const buildColumns = (
     title: field.label,
     dataIndex: field.key,
     key: field.key,
-    render: (_: unknown, record: AdminRecord) => formatValue(field, record[field.key], blueprintMap, templateMap, roleMap)
+    render: (_: unknown, record: AdminRecord) =>
+      formatValue(field, record[field.key], blueprintMap, templateMap, roleMap, assetMap, fontFamilyMap)
   }));
 
   columns.push({
@@ -500,7 +655,9 @@ const renderInput = (
   field: ResourceField,
   blueprintOptions: BlueprintOption[],
   templateOptions: TemplateOption[] = [],
-  roleOptions: RoleOption[] = []
+  roleOptions: RoleOption[] = [],
+  assetOptions: AssetOption[] = [],
+  fontFamilyOptions: FontFamilyOption[] = []
 ) => {
   switch (field.type) {
     case "textarea":
@@ -531,6 +688,19 @@ const renderInput = (
                       label: entry.label,
                       value: entry.id
                     }))
+                  : field.optionSource === "assets"
+                    ? [
+                        { label: "No linked asset", value: "" },
+                        ...assetOptions.map((entry) => ({
+                          label: entry.filename,
+                          value: entry.id
+                        }))
+                      ]
+                    : field.optionSource === "font-families"
+                      ? fontFamilyOptions.map((entry) => ({
+                          label: entry.displayName,
+                          value: entry.id
+                        }))
                 : field.options
           }
         />
@@ -560,7 +730,21 @@ const defaultFormValuesByResource: Partial<Record<CrudResourceName, Record<strin
   },
   assets: {
     kind: "image",
-    mimeType: "image/png"
+    status: "pending",
+    mimeType: "image/png",
+    colorSpace: "sRGB"
+  },
+  "asset-variants": {
+    variantKind: "web",
+    mimeType: "image/webp"
+  },
+  "font-families": {
+    source: "upload",
+    status: "active"
+  },
+  "font-files": {
+    format: "woff2",
+    assetId: ""
   },
   users: {
     role: "customer",
@@ -575,6 +759,8 @@ const ResourceListPage = ({ resourceName }: { resourceName: CrudResourceName }) 
   const blueprints = useBlueprintOptions();
   const templates = useTemplateOptions();
   const roles = useRoleOptions();
+  const assets = useAssetOptions();
+  const fontFamilies = useFontFamilyOptions();
   const [loading, setLoading] = useState(true);
   const [records, setRecords] = useState<AdminRecord[]>([]);
   const [search, setSearch] = useState("");
@@ -611,6 +797,15 @@ const ResourceListPage = ({ resourceName }: { resourceName: CrudResourceName }) 
     acc[item.id] = item.label;
     return acc;
   }, {});
+  const assetMap = assets.reduce<Record<string, string>>((acc, item) => {
+    acc[item.id] = item.filename;
+    return acc;
+  }, {});
+  const fontFamilyMap = fontFamilies.reduce<Record<string, string>>((acc, item) => {
+    acc[item.id] = item.displayName;
+    return acc;
+    return acc;
+  }, {});
   const filterFields = resource.fields.filter(
     (field: ResourceField) =>
       field.list &&
@@ -625,6 +820,12 @@ const ResourceListPage = ({ resourceName }: { resourceName: CrudResourceName }) 
     }
     if (field.optionSource === "roles") {
       return roles.map((entry) => ({ label: entry.label, value: entry.id }));
+    }
+    if (field.optionSource === "assets") {
+      return assets.map((entry) => ({ label: entry.filename, value: entry.id }));
+    }
+    if (field.optionSource === "font-families") {
+      return fontFamilies.map((entry) => ({ label: entry.displayName, value: entry.id }));
     }
     return field.options ?? [];
   };
@@ -772,7 +973,7 @@ const ResourceListPage = ({ resourceName }: { resourceName: CrudResourceName }) 
                 }
               : undefined
           }
-          columns={buildColumns(resource, blueprintMap, templateMap, roleMap, handleDelete, deletingId)}
+          columns={buildColumns(resource, blueprintMap, templateMap, roleMap, assetMap, fontFamilyMap, handleDelete, deletingId)}
           dataSource={filteredRecords}
           scroll={{ x: "max-content" }}
           locale={{
@@ -821,8 +1022,17 @@ const AssetsCreateWorkspace = () => {
     filename: string;
     mimeType: string;
     kind: "image" | "svg" | "pdf" | "font" | "technical";
+    status: "pending" | "processing" | "ready" | "failed";
+    sizeBytes: number;
     widthPx: number | null;
     heightPx: number | null;
+    dpiX: number | null;
+    dpiY: number | null;
+    colorSpace: string;
+    originalObjectKey: string;
+    normalizedObjectKey: string;
+    iccProfileRef: string;
+    sha256: string;
   } | null>(null);
   const { message } = App.useApp();
 
@@ -877,13 +1087,22 @@ const AssetsCreateWorkspace = () => {
       filename: file.name,
       mimeType: file.type || "application/octet-stream",
       kind: inferAssetKind(file),
+      status: "pending",
+      sizeBytes: file.size,
       widthPx: dimensions?.width ?? null,
-      heightPx: dimensions?.height ?? null
+      heightPx: dimensions?.height ?? null,
+      dpiX: null,
+      dpiY: null,
+      colorSpace: "sRGB",
+      originalObjectKey: "",
+      normalizedObjectKey: "",
+      iccProfileRef: "",
+      sha256: ""
     });
   };
 
   const handleSubmit = async () => {
-    if (!meta) {
+    if (!meta || !selectedFile) {
       setError("Choose a file first.");
       return;
     }
@@ -891,12 +1110,44 @@ const AssetsCreateWorkspace = () => {
     setSubmitting(true);
     setError(null);
     try {
-      const asset = await requestJson<AdminRecord>("/v1/assets", {
+      const intent = await requestJson<{
+        assetId: string;
+        uploadUrl: string;
+        confirmUrl: string;
+      }>("/v1/assets/upload-intent", {
         method: "POST",
-        body: JSON.stringify(meta)
+        body: JSON.stringify({
+          filename: meta.filename,
+          kind: meta.kind,
+          mimeType: meta.mimeType,
+          sizeBytes: meta.sizeBytes
+        })
       });
-      message.success("Asset created.");
-      navigate(`/assets/show/${asset.id}`);
+      const uploadResponse = await fetch(resolveApiUrl(intent.uploadUrl), {
+        method: "PUT",
+        headers: buildHeaders({
+          "Content-Type": selectedFile.type || "application/octet-stream"
+        }),
+        body: selectedFile
+      });
+      if (!uploadResponse.ok) {
+        throw new Error("Could not upload the selected file.");
+      }
+
+      const asset = await requestJson<AdminRecord>(intent.confirmUrl, {
+        method: "POST",
+        body: JSON.stringify({
+          widthPx: meta.widthPx,
+          heightPx: meta.heightPx,
+          dpiX: meta.dpiX,
+          dpiY: meta.dpiY,
+          colorSpace: meta.colorSpace,
+          iccProfileRef: meta.iccProfileRef
+        })
+      });
+
+      message.success("Asset uploaded and processed.");
+      navigate(`/assets/show/${asset.id ?? intent.assetId}`);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Could not create asset.");
     } finally {
@@ -904,11 +1155,15 @@ const AssetsCreateWorkspace = () => {
     }
   };
 
+  const updateMeta = <K extends keyof NonNullable<typeof meta>>(key: K, value: NonNullable<typeof meta>[K]) => {
+    setMeta((current) => (current ? { ...current, [key]: value } : current));
+  };
+
   return (
     <div className="admin-page">
       <SectionIntro
         title="Create Asset"
-        description="Add a reusable file to the asset library. The system reads the filename, mime type, kind, and image dimensions automatically."
+        description="Add a reusable file to the asset library. Review the detected metadata, then complete the storage and processing fields that the asset pipeline needs."
         action={
           <Button icon={<ArrowLeftOutlined />} onClick={() => navigate("/assets")}>
             Back to Assets
@@ -948,10 +1203,98 @@ const AssetsCreateWorkspace = () => {
                 <Descriptions size="small" column={1}>
                   <Descriptions.Item label="Filename">{meta.filename}</Descriptions.Item>
                   <Descriptions.Item label="Kind">{meta.kind}</Descriptions.Item>
+                  <Descriptions.Item label="Status">
+                    {formatValue({ key: "status", label: "Status", type: "status" }, meta.status, {}, {}, {})}
+                  </Descriptions.Item>
                   <Descriptions.Item label="MIME type">{meta.mimeType}</Descriptions.Item>
+                  <Descriptions.Item label="File size">{formatBytes(meta.sizeBytes)}</Descriptions.Item>
                   <Descriptions.Item label="Width">{meta.widthPx ?? "—"}</Descriptions.Item>
                   <Descriptions.Item label="Height">{meta.heightPx ?? "—"}</Descriptions.Item>
                 </Descriptions>
+                <div className="admin-form-section">
+                  <div className="admin-form-section__title">Pipeline metadata</div>
+                  <Row gutter={12}>
+                    <Col xs={24} md={12}>
+                      <Text type="secondary">Status</Text>
+                      <Select
+                        className="admin-field"
+                        value={meta.status}
+                        options={[
+                          { label: "Pending", value: "pending" },
+                          { label: "Processing", value: "processing" },
+                          { label: "Ready", value: "ready" },
+                          { label: "Failed", value: "failed" }
+                        ]}
+                        onChange={(value) => updateMeta("status", value)}
+                      />
+                    </Col>
+                    <Col xs={24} md={12}>
+                      <Text type="secondary">Color space</Text>
+                      <Input
+                        className="admin-field"
+                        value={meta.colorSpace}
+                        onChange={(event) => updateMeta("colorSpace", event.target.value)}
+                        placeholder="sRGB"
+                      />
+                    </Col>
+                    <Col xs={24} md={12}>
+                      <Text type="secondary">DPI X</Text>
+                      <InputNumber
+                        className="admin-field"
+                        style={{ width: "100%" }}
+                        value={meta.dpiX ?? undefined}
+                        onChange={(value) => updateMeta("dpiX", typeof value === "number" ? value : null)}
+                        placeholder="300"
+                      />
+                    </Col>
+                    <Col xs={24} md={12}>
+                      <Text type="secondary">DPI Y</Text>
+                      <InputNumber
+                        className="admin-field"
+                        style={{ width: "100%" }}
+                        value={meta.dpiY ?? undefined}
+                        onChange={(value) => updateMeta("dpiY", typeof value === "number" ? value : null)}
+                        placeholder="300"
+                      />
+                    </Col>
+                    <Col xs={24}>
+                      <Text type="secondary">Original object key</Text>
+                      <Input
+                        className="admin-field"
+                        value={meta.originalObjectKey}
+                        onChange={(event) => updateMeta("originalObjectKey", event.target.value)}
+                        placeholder="assets-original/org/demo/file.ext"
+                      />
+                    </Col>
+                    <Col xs={24}>
+                      <Text type="secondary">Normalized object key</Text>
+                      <Input
+                        className="admin-field"
+                        value={meta.normalizedObjectKey}
+                        onChange={(event) => updateMeta("normalizedObjectKey", event.target.value)}
+                        placeholder="assets-derived/org/demo/file-normalized.ext"
+                      />
+                    </Col>
+                    <Col xs={24}>
+                      <Text type="secondary">ICC profile</Text>
+                      <Input
+                        className="admin-field"
+                        value={meta.iccProfileRef}
+                        onChange={(event) => updateMeta("iccProfileRef", event.target.value)}
+                        placeholder="sRGB IEC61966-2.1"
+                      />
+                    </Col>
+                    <Col xs={24}>
+                      <Text type="secondary">SHA-256</Text>
+                      <Input
+                        className="admin-field"
+                        value={meta.sha256}
+                        onChange={(event) => updateMeta("sha256", event.target.value)}
+                        placeholder="Optional integrity hash"
+                      />
+                    </Col>
+                  </Row>
+                </div>
                 <div className="admin-form-actions">
                   <Button onClick={() => void handleFileSelection(null)}>Clear</Button>
                   <Button type="primary" icon={<PlusCircleOutlined />} onClick={() => void handleSubmit()} loading={submitting}>
@@ -983,6 +1326,8 @@ const ResourceFormPage = ({
   const blueprints = useBlueprintOptions();
   const templates = useTemplateOptions();
   const roles = useRoleOptions();
+  const assets = useAssetOptions();
+  const fontFamilies = useFontFamilyOptions();
   const selectedBlueprintId = Form.useWatch("blueprintId", form) as string | undefined;
   const templateOptions = useTemplateOptions(selectedBlueprintId);
   const previewSubject = Form.useWatch("subject", form) as string | undefined;
@@ -1076,6 +1421,9 @@ const ResourceFormPage = ({
       if (resourceName === "projects" && payload.templateId === "") {
         payload.templateId = null;
       }
+      if (resourceName === "font-files" && payload.assetId === "") {
+        payload.assetId = null;
+      }
       if (resourceName === "api-tokens" && payload.expiresAt === "") {
         payload.expiresAt = null;
       }
@@ -1155,7 +1503,7 @@ const ResourceFormPage = ({
                           rules={field.required ? [{ required: true, message: `${field.label} is required.` }] : undefined}
                           extra={field.extra}
                         >
-                          {renderInput(field, blueprints, templateOptions, roles)}
+                          {renderInput(field, blueprints, templateOptions, roles, assets, fontFamilies)}
                         </Form.Item>
                       </Col>
                     ))}
@@ -1173,28 +1521,55 @@ const ResourceFormPage = ({
         </Col>
         {resourceName === "email-templates" ? (
           <Col xs={24} xl={10}>
-            <Card className="admin-card" title="Live preview">
-              <Paragraph type="secondary">
-                Review the real rendered HTML with this template's header, body, and footer before saving.
-              </Paragraph>
-              {emailDraftPreview ? (
-                <Space direction="vertical" size="middle" style={{ width: "100%" }}>
-                  <div>
-                    <Text type="secondary">Rendered subject</Text>
-                    <div className="admin-preview-subject">{emailDraftPreview.subject}</div>
-                  </div>
-                  <div>
-                    <Text type="secondary">Preview text</Text>
-                    <div className="admin-preview-meta">{emailDraftPreview.previewText}</div>
-                  </div>
-                  <div className="admin-html-frame">
-                    <iframe title="Email draft preview" srcDoc={emailDraftPreview.html} className="admin-preview-iframe" />
-                  </div>
+            <Space direction="vertical" size="large" style={{ width: "100%" }}>
+              <Card className="admin-card" title="Variables">
+                <Paragraph type="secondary">
+                  Use placeholders from system settings and runtime mail data in subject, body, header, and footer.
+                </Paragraph>
+                <Space wrap size={[8, 8]}>
+                  {[
+                    "{{brandName}}",
+                    "{{logoText}}",
+                    "{{companyName}}",
+                    "{{companyAddress}}",
+                    "{{supportEmail}}",
+                    "{{supportPhone}}",
+                    "{{salesEmail}}",
+                    "{{portalAppUrl}}",
+                    "{{designerAppUrl}}",
+                    "{{adminAppUrl}}",
+                    "{{commerceBaseUrl}}",
+                    "{{publicApiUrl}}",
+                    "{{recipientEmail}}",
+                    "{{resetToken}}"
+                  ].map((token) => (
+                    <Tag key={token}>{token}</Tag>
+                  ))}
                 </Space>
-              ) : (
-                <Empty description="Add subject, preview text, and body HTML to render a live preview." />
-              )}
-            </Card>
+              </Card>
+              <Card className="admin-card" title="Live preview">
+                <Paragraph type="secondary">
+                  Review the real rendered HTML with this template's header, body, and footer before saving.
+                </Paragraph>
+                {emailDraftPreview ? (
+                  <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+                    <div>
+                      <Text type="secondary">Rendered subject</Text>
+                      <div className="admin-preview-subject">{emailDraftPreview.subject}</div>
+                    </div>
+                    <div>
+                      <Text type="secondary">Preview text</Text>
+                      <div className="admin-preview-meta">{emailDraftPreview.previewText}</div>
+                    </div>
+                    <div className="admin-html-frame">
+                      <iframe title="Email draft preview" srcDoc={emailDraftPreview.html} className="admin-preview-iframe" />
+                    </div>
+                  </Space>
+                ) : (
+                  <Empty description="Add subject, preview text, and body HTML to render a live preview." />
+                )}
+              </Card>
+            </Space>
           </Col>
         ) : null}
       </Row>
@@ -1351,6 +1726,77 @@ const MailLogShowExtras = ({ record }: { record: AdminRecord }) => (
   </Card>
 );
 
+const AssetShowExtras = ({ record }: { record: AdminRecord }) => {
+  const isPreviewableImage =
+    typeof record.mimeType === "string" &&
+    (record.mimeType.startsWith("image/") || record.mimeType === "image/svg+xml");
+
+  const previewLabel = typeof record.normalizedObjectKey === "string" && record.normalizedObjectKey
+    ? String(record.normalizedObjectKey)
+    : typeof record.originalObjectKey === "string" && record.originalObjectKey
+      ? String(record.originalObjectKey)
+      : null;
+
+  return (
+    <Row gutter={[20, 20]}>
+      <Col xs={24} xl={10}>
+        <Card className="admin-card" title="Preview">
+          {isPreviewableImage ? (
+            <div className="admin-asset-preview-shell">
+              <img
+                src={resolveApiUrl(`/v1/assets/${String(record.id)}/file`)}
+                alt={String(record.filename ?? "Asset")}
+                className="admin-asset-preview"
+              />
+              <Text type="secondary">
+                Previewing the currently stored original file for this asset.
+              </Text>
+            </div>
+          ) : (
+            <Empty description="No inline preview for this asset type yet." />
+          )}
+        </Card>
+      </Col>
+      <Col xs={24} xl={14}>
+        <Card className="admin-card" title="Pipeline summary">
+          <Row gutter={[16, 16]}>
+            <Col xs={24} md={8}>
+              <Statistic title="Status" value={String(record.status ?? "—")} />
+            </Col>
+            <Col xs={24} md={8}>
+              <Statistic title="File size" value={formatBytes(record.sizeBytes)} />
+            </Col>
+            <Col xs={24} md={8}>
+              <Statistic
+                title="DPI"
+                value={
+                  record.dpiX || record.dpiY
+                    ? `${String(record.dpiX ?? "—")} / ${String(record.dpiY ?? "—")}`
+                    : "—"
+                }
+              />
+            </Col>
+          </Row>
+          <Descriptions size="small" column={1} style={{ marginTop: 20 }}>
+            <Descriptions.Item label="Color space">{String(record.colorSpace ?? "—")}</Descriptions.Item>
+            <Descriptions.Item label="ICC profile">{String(record.iccProfileRef ?? "—")}</Descriptions.Item>
+            <Descriptions.Item label="Original object key">{String(record.originalObjectKey ?? "—")}</Descriptions.Item>
+            <Descriptions.Item label="Normalized object key">{String(record.normalizedObjectKey ?? "—")}</Descriptions.Item>
+            <Descriptions.Item label="Integrity hash">
+              <div className="admin-pre-wrap">{String(record.sha256 ?? "—")}</div>
+            </Descriptions.Item>
+            <Descriptions.Item label="Pipeline note">
+              {previewLabel
+                ? "This asset is ready for the upcoming object-storage pipeline."
+                : "This asset record exists, but object-storage keys have not been assigned yet."}
+            </Descriptions.Item>
+          </Descriptions>
+        </Card>
+      </Col>
+    </Row>
+  );
+};
+
 const EmailTemplateShowExtras = ({ record }: { record: AdminRecord }) => {
   const preview = useEmailPreview(String(record.id));
 
@@ -1384,6 +1830,8 @@ const ResourceShowPage = ({ resourceName }: { resourceName: CrudResourceName }) 
   const blueprints = useBlueprintOptions();
   const templates = useTemplateOptions();
   const roles = useRoleOptions();
+  const assets = useAssetOptions();
+  const fontFamilies = useFontFamilyOptions();
   const [record, setRecord] = useState<AdminRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1429,6 +1877,14 @@ const ResourceShowPage = ({ resourceName }: { resourceName: CrudResourceName }) 
     acc[item.id] = item.label;
     return acc;
   }, {});
+  const assetMap = assets.reduce<Record<string, string>>((acc, item) => {
+    acc[item.id] = item.filename;
+    return acc;
+  }, {});
+  const fontFamilyMap = fontFamilies.reduce<Record<string, string>>((acc, item) => {
+    acc[item.id] = item.displayName;
+    return acc;
+  }, {});
 
   return (
     <div className="admin-page">
@@ -1467,13 +1923,14 @@ const ResourceShowPage = ({ resourceName }: { resourceName: CrudResourceName }) 
                 .filter((field: ResourceField) => field.show)
                 .map((field: ResourceField) => (
                   <Descriptions.Item key={`${field.key}-${field.label}`} label={field.label}>
-                    {formatValue(field, record[field.key], blueprintMap, templateMap, roleMap)}
+                    {formatValue(field, record[field.key], blueprintMap, templateMap, roleMap, assetMap, fontFamilyMap)}
                   </Descriptions.Item>
                 ))}
             </Descriptions>
           </Card>
 
           {resourceName === "projects" ? <ProjectShowExtras record={record} /> : null}
+          {resourceName === "assets" ? <AssetShowExtras record={record} /> : null}
           {resourceName === "mail-log" ? <MailLogShowExtras record={record} /> : null}
           {resourceName === "email-templates" ? <EmailTemplateShowExtras record={record} /> : null}
         </Space>
@@ -1484,6 +1941,7 @@ const ResourceShowPage = ({ resourceName }: { resourceName: CrudResourceName }) 
 
 export const SettingsPage = () => {
   const [form] = Form.useForm();
+  const assets = useAssetOptions();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1534,7 +1992,12 @@ export const SettingsPage = () => {
     <div className="admin-page">
       <SectionIntro
         title="Settings"
-        description="Manage global branding, sender defaults, public URLs, and localization values used across the platform."
+        description="Manage global brand identity, delivery channels, security limits, and operational defaults for the whole platform."
+        action={
+          <Link to="/assets/create">
+            <Button icon={<UploadOutlined />}>Upload brand asset</Button>
+          </Link>
+        }
       />
       <Row gutter={[20, 20]}>
         <Col xs={24} xl={15}>
@@ -1547,93 +2010,199 @@ export const SettingsPage = () => {
               <>
                 {error ? <Alert className="admin-alert" type="error" message={error} showIcon /> : null}
                 <Form layout="vertical" form={form} onFinish={(values) => void handleFinish(values)}>
-                  <div className="admin-form-section">
-                    <div className="admin-form-section__title">Brand and sender</div>
-                    <Row gutter={20}>
-                      <Col xs={24} md={12}>
-                        <Form.Item label="Brand name" name="brandName" rules={[{ required: true }]}>
-                          <Input />
-                        </Form.Item>
-                      </Col>
-                      <Col xs={24} md={12}>
-                        <Form.Item label="Logo text" name="logoText" rules={[{ required: true }]}>
-                          <Input />
-                        </Form.Item>
-                      </Col>
-                      <Col xs={24} md={12}>
-                        <Form.Item label="Company name" name="companyName" rules={[{ required: true }]}>
-                          <Input />
-                        </Form.Item>
-                      </Col>
-                      <Col xs={24} md={12}>
-                        <Form.Item label="Primary color" name="primaryColor" rules={[{ required: true }]}>
-                          <Input />
-                        </Form.Item>
-                      </Col>
-                      <Col xs={24}>
-                        <Form.Item label="Company address" name="companyAddress" rules={[{ required: true }]}>
-                          <Input.TextArea rows={4} />
-                        </Form.Item>
-                      </Col>
-                      <Col xs={24} md={12}>
-                        <Form.Item label="Support email" name="supportEmail" rules={[{ required: true }]}>
-                          <Input type="email" />
-                        </Form.Item>
-                      </Col>
-                      <Col xs={24} md={12}>
-                        <Form.Item label="Mail from name" name="mailFromName" rules={[{ required: true }]}>
-                          <Input />
-                        </Form.Item>
-                      </Col>
-                      <Col xs={24} md={12}>
-                        <Form.Item label="Mail from address" name="mailFromAddress" rules={[{ required: true }]}>
-                          <Input type="email" />
-                        </Form.Item>
-                      </Col>
-                    </Row>
-                  </div>
-
-                  <div className="admin-form-section">
-                    <div className="admin-form-section__title">Public application URLs</div>
-                    <Row gutter={20}>
-                      <Col xs={24} md={12}>
-                        <Form.Item label="Portal URL" name="portalAppUrl">
-                          <Input placeholder="https://portal.example.com" />
-                        </Form.Item>
-                      </Col>
-                      <Col xs={24} md={12}>
-                        <Form.Item label="Designer URL" name="designerAppUrl">
-                          <Input placeholder="https://designer.example.com" />
-                        </Form.Item>
-                      </Col>
-                      <Col xs={24} md={12}>
-                        <Form.Item label="Admin URL" name="adminAppUrl">
-                          <Input placeholder="https://admin.example.com" />
-                        </Form.Item>
-                      </Col>
-                      <Col xs={24} md={12}>
-                        <Form.Item label="Commerce URL" name="commerceBaseUrl">
-                          <Input placeholder="https://shop.example.com" />
-                        </Form.Item>
-                      </Col>
-                    </Row>
-                  </div>
-
-                  <div className="admin-form-section">
-                    <div className="admin-form-section__title">Localization</div>
-                    <Row gutter={20}>
-                      <Col xs={24} md={12}>
-                        <Form.Item label="Default locale" name="defaultLocale" rules={[{ required: true }]}>
-                          <Input placeholder="en-US" />
-                        </Form.Item>
-                      </Col>
-                      <Col xs={24} md={12}>
-                        <Form.Item label="Default timezone" name="defaultTimezone" rules={[{ required: true }]}>
-                          <Input placeholder="Europe/Berlin" />
-                        </Form.Item>
-                      </Col>
-                    </Row>
-                  </div>
+                  <Tabs
+                    className="admin-top-tabs"
+                    items={[
+                      {
+                        key: "brand",
+                        label: "Brand",
+                        children: (
+                          <div className="admin-form-section">
+                            <div className="admin-form-section__title">Brand identity</div>
+                            <Row gutter={20}>
+                              <Col xs={24} md={12}>
+                                <Form.Item label="Brand name" name="brandName" rules={[{ required: true }]}>
+                                  <Input />
+                                </Form.Item>
+                              </Col>
+                              <Col xs={24} md={12}>
+                                <Form.Item label="Logo text" name="logoText" rules={[{ required: true }]}>
+                                  <Input />
+                                </Form.Item>
+                              </Col>
+                              <Col xs={24} md={12}>
+                                <Form.Item label="Company name" name="companyName" rules={[{ required: true }]}>
+                                  <Input />
+                                </Form.Item>
+                              </Col>
+                              <Col xs={24} md={12}>
+                                <Form.Item label="Primary color" name="primaryColor" rules={[{ required: true }]}>
+                                  <Input placeholder="#184a8c" />
+                                </Form.Item>
+                              </Col>
+                              <Col xs={24} md={12}>
+                                <Form.Item label="Logo URL" name="logoUrl" extra="Immediate header/logo rendering source for the admin shell and future workspaces.">
+                                  <Input placeholder="https://cdn.example.com/brand/logo.svg" />
+                                </Form.Item>
+                              </Col>
+                              <Col xs={24} md={12}>
+                                <Form.Item
+                                  label="Logo asset"
+                                  name="logoAssetId"
+                                  extra="Select an uploaded asset to mark it as the managed brand logo for future storage-backed delivery."
+                                >
+                                  <Select
+                                    allowClear
+                                    placeholder="Choose a brand asset"
+                                    options={assets.map((entry) => ({ label: entry.filename, value: entry.id }))}
+                                  />
+                                </Form.Item>
+                              </Col>
+                              <Col xs={24}>
+                                <Form.Item label="Company address" name="companyAddress" rules={[{ required: true }]}>
+                                  <Input.TextArea rows={4} />
+                                </Form.Item>
+                              </Col>
+                            </Row>
+                          </div>
+                        )
+                      },
+                      {
+                        key: "contact-mail",
+                        label: "Contact & mail",
+                        children: (
+                          <div className="admin-form-section">
+                            <div className="admin-form-section__title">Support and sender defaults</div>
+                            <Row gutter={20}>
+                              <Col xs={24} md={12}>
+                                <Form.Item label="Support email" name="supportEmail" rules={[{ required: true }]}>
+                                  <Input type="email" />
+                                </Form.Item>
+                              </Col>
+                              <Col xs={24} md={12}>
+                                <Form.Item label="Sales email" name="salesEmail" rules={[{ required: true }]}>
+                                  <Input type="email" />
+                                </Form.Item>
+                              </Col>
+                              <Col xs={24} md={12}>
+                                <Form.Item label="Support phone" name="supportPhone" rules={[{ required: true }]}>
+                                  <Input placeholder="+49 30 1234567" />
+                                </Form.Item>
+                              </Col>
+                              <Col xs={24} md={12}>
+                                <Form.Item label="Reply-to email" name="replyToEmail" rules={[{ required: true }]}>
+                                  <Input type="email" />
+                                </Form.Item>
+                              </Col>
+                              <Col xs={24} md={12}>
+                                <Form.Item label="Mail from name" name="mailFromName" rules={[{ required: true }]}>
+                                  <Input />
+                                </Form.Item>
+                              </Col>
+                              <Col xs={24} md={12}>
+                                <Form.Item label="Mail from address" name="mailFromAddress" rules={[{ required: true }]}>
+                                  <Input type="email" />
+                                </Form.Item>
+                              </Col>
+                            </Row>
+                          </div>
+                        )
+                      },
+                      {
+                        key: "applications",
+                        label: "Applications",
+                        children: (
+                          <div className="admin-form-section">
+                            <div className="admin-form-section__title">Public and operational URLs</div>
+                            <Row gutter={20}>
+                              <Col xs={24} md={12}>
+                                <Form.Item label="Portal URL" name="portalAppUrl">
+                                  <Input placeholder="https://portal.example.com" />
+                                </Form.Item>
+                              </Col>
+                              <Col xs={24} md={12}>
+                                <Form.Item label="Designer URL" name="designerAppUrl">
+                                  <Input placeholder="https://designer.example.com" />
+                                </Form.Item>
+                              </Col>
+                              <Col xs={24} md={12}>
+                                <Form.Item label="Admin URL" name="adminAppUrl">
+                                  <Input placeholder="https://admin.example.com" />
+                                </Form.Item>
+                              </Col>
+                              <Col xs={24} md={12}>
+                                <Form.Item label="Commerce URL" name="commerceBaseUrl">
+                                  <Input placeholder="https://shop.example.com" />
+                                </Form.Item>
+                              </Col>
+                              <Col xs={24} md={12}>
+                                <Form.Item label="Public API URL" name="publicApiUrl">
+                                  <Input placeholder="https://api.example.com" />
+                                </Form.Item>
+                              </Col>
+                            </Row>
+                          </div>
+                        )
+                      },
+                      {
+                        key: "regional",
+                        label: "Localization",
+                        children: (
+                          <div className="admin-form-section">
+                            <div className="admin-form-section__title">Regional defaults</div>
+                            <Row gutter={20}>
+                              <Col xs={24} md={8}>
+                                <Form.Item label="Default locale" name="defaultLocale" rules={[{ required: true }]}>
+                                  <Input placeholder="en-US" />
+                                </Form.Item>
+                              </Col>
+                              <Col xs={24} md={8}>
+                                <Form.Item label="Default timezone" name="defaultTimezone" rules={[{ required: true }]}>
+                                  <Input placeholder="Europe/Berlin" />
+                                </Form.Item>
+                              </Col>
+                              <Col xs={24} md={8}>
+                                <Form.Item label="Default currency" name="defaultCurrency" rules={[{ required: true }]}>
+                                  <Input placeholder="EUR" />
+                                </Form.Item>
+                              </Col>
+                            </Row>
+                          </div>
+                        )
+                      },
+                      {
+                        key: "policies",
+                        label: "Policies & limits",
+                        children: (
+                          <div className="admin-form-section">
+                            <div className="admin-form-section__title">Security and upload defaults</div>
+                            <Row gutter={20}>
+                              <Col xs={24} md={6}>
+                                <Form.Item label="Session TTL (hours)" name="sessionTtlHours" rules={[{ required: true }]}>
+                                  <InputNumber min={1} style={{ width: "100%" }} />
+                                </Form.Item>
+                              </Col>
+                              <Col xs={24} md={6}>
+                                <Form.Item label="Password reset TTL (minutes)" name="passwordResetTtlMinutes" rules={[{ required: true }]}>
+                                  <InputNumber min={1} style={{ width: "100%" }} />
+                                </Form.Item>
+                              </Col>
+                              <Col xs={24} md={6}>
+                                <Form.Item label="Max upload (MB)" name="maxUploadMb" rules={[{ required: true }]}>
+                                  <InputNumber min={1} style={{ width: "100%" }} />
+                                </Form.Item>
+                              </Col>
+                              <Col xs={24} md={6}>
+                                <Form.Item label="Max image edge (px)" name="maxImageEdgePx" rules={[{ required: true }]}>
+                                  <InputNumber min={1000} step={500} style={{ width: "100%" }} />
+                                </Form.Item>
+                              </Col>
+                            </Row>
+                          </div>
+                        )
+                      }
+                    ]}
+                  />
                   <div className="admin-form-actions">
                     <Button type="primary" htmlType="submit" icon={<SaveOutlined />} loading={saving}>
                       Save settings
@@ -1649,28 +2218,154 @@ export const SettingsPage = () => {
             <Space direction="vertical" size="middle" style={{ width: "100%" }}>
               <Descriptions column={1} size="small">
                 <Descriptions.Item label="Brand">{String(settingsValues.brandName ?? "—")}</Descriptions.Item>
+                <Descriptions.Item label="Logo source">
+                  {settingsValues.logoUrl
+                    ? String(settingsValues.logoUrl)
+                    : settingsValues.logoAssetId
+                      ? `Managed asset ${String(settingsValues.logoAssetId)}`
+                      : "Text-only"}
+                </Descriptions.Item>
                 <Descriptions.Item label="Sender">
                   {settingsValues.mailFromName || settingsValues.mailFromAddress
                     ? `${String(settingsValues.mailFromName ?? "")} <${String(settingsValues.mailFromAddress ?? "")}>`
                     : "—"}
                 </Descriptions.Item>
+                <Descriptions.Item label="Reply-to">{String(settingsValues.replyToEmail ?? "—")}</Descriptions.Item>
+                <Descriptions.Item label="Support phone">{String(settingsValues.supportPhone ?? "—")}</Descriptions.Item>
                 <Descriptions.Item label="Portal URL">{String(settingsValues.portalAppUrl ?? "—")}</Descriptions.Item>
                 <Descriptions.Item label="Designer URL">{String(settingsValues.designerAppUrl ?? "—")}</Descriptions.Item>
                 <Descriptions.Item label="Admin URL">{String(settingsValues.adminAppUrl ?? "—")}</Descriptions.Item>
                 <Descriptions.Item label="Commerce URL">{String(settingsValues.commerceBaseUrl ?? "—")}</Descriptions.Item>
+                <Descriptions.Item label="Public API URL">{String(settingsValues.publicApiUrl ?? "—")}</Descriptions.Item>
                 <Descriptions.Item label="Locale">{String(settingsValues.defaultLocale ?? "—")}</Descriptions.Item>
                 <Descriptions.Item label="Timezone">{String(settingsValues.defaultTimezone ?? "—")}</Descriptions.Item>
+                <Descriptions.Item label="Currency">{String(settingsValues.defaultCurrency ?? "—")}</Descriptions.Item>
+                <Descriptions.Item label="Session TTL">{String(settingsValues.sessionTtlHours ?? "—")} h</Descriptions.Item>
+                <Descriptions.Item label="Reset TTL">{String(settingsValues.passwordResetTtlMinutes ?? "—")} min</Descriptions.Item>
+                <Descriptions.Item label="Upload limit">{String(settingsValues.maxUploadMb ?? "—")} MB</Descriptions.Item>
+                <Descriptions.Item label="Image edge limit">{String(settingsValues.maxImageEdgePx ?? "—")} px</Descriptions.Item>
               </Descriptions>
-              <Alert
-                type="info"
-                showIcon
-                message="Mail wrappers now belong to Email Templates"
-                description="Header and footer HTML are edited directly on each email template, together with the body and live preview."
-              />
             </Space>
           </Card>
         </Col>
       </Row>
+    </div>
+  );
+};
+
+export const SystemInfoPage = () => {
+  const [info, setInfo] = useState<SystemInfoResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    requestJson<SystemInfoResponse>("/v1/system-info")
+      .then((payload) => {
+        if (active) {
+          setInfo(payload);
+        }
+      })
+      .catch((nextError) => {
+        if (active) {
+          setError(nextError instanceof Error ? nextError.message : "Could not load system info.");
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  return (
+    <div className="admin-page">
+      <SectionIntro
+        title="System Info"
+        description="Review runtime, database, endpoint, and platform policy information for this Flow2Print installation."
+      />
+      {loading ? (
+        <Card className="admin-card">
+          <div className="admin-loading">
+            <Spin />
+          </div>
+        </Card>
+      ) : error || !info ? (
+        <Alert type="error" showIcon message={error ?? "System info unavailable."} />
+      ) : (
+        <Space direction="vertical" size="large" style={{ width: "100%" }}>
+          <Row gutter={[20, 20]}>
+            <Col xs={24} md={12} xl={6}>
+              <Card className="admin-card admin-dashboard-card">
+                <Statistic title="Projects" value={info.catalog.projects} />
+              </Card>
+            </Col>
+            <Col xs={24} md={12} xl={6}>
+              <Card className="admin-card admin-dashboard-card">
+                <Statistic title="Assets" value={info.catalog.assets} />
+              </Card>
+            </Col>
+            <Col xs={24} md={12} xl={6}>
+              <Card className="admin-card admin-dashboard-card">
+                <Statistic title="Templates" value={info.catalog.templates} />
+              </Card>
+            </Col>
+            <Col xs={24} md={12} xl={6}>
+              <Card className="admin-card admin-dashboard-card">
+                <Statistic title="Users" value={info.catalog.users} />
+              </Card>
+            </Col>
+          </Row>
+          <Row gutter={[20, 20]}>
+            <Col xs={24} xl={8}>
+              <Card className="admin-card" title="Runtime">
+                <Descriptions column={1} size="small">
+                  <Descriptions.Item label="Framework">{info.runtime.framework}</Descriptions.Item>
+                  <Descriptions.Item label="Node">{info.runtime.nodeVersion}</Descriptions.Item>
+                  <Descriptions.Item label="Platform">{`${info.runtime.platform} / ${info.runtime.arch}`}</Descriptions.Item>
+                  <Descriptions.Item label="Timezone">{info.runtime.timezone}</Descriptions.Item>
+                  <Descriptions.Item label="Uptime">{`${info.runtime.uptimeSeconds}s`}</Descriptions.Item>
+                  <Descriptions.Item label="Snapshot time">{formatDate(info.runtime.now)}</Descriptions.Item>
+                </Descriptions>
+              </Card>
+            </Col>
+            <Col xs={24} xl={8}>
+              <Card className="admin-card" title="Persistence">
+                <Descriptions column={1} size="small">
+                  <Descriptions.Item label="Engine">{info.persistence.engine}</Descriptions.Item>
+                  <Descriptions.Item label="Database URL">
+                    {info.persistence.databaseUrlConfigured ? "Configured" : "Missing"}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Runtime data dir">{info.persistence.dataDir ?? "—"}</Descriptions.Item>
+                </Descriptions>
+              </Card>
+            </Col>
+            <Col xs={24} xl={8}>
+              <Card className="admin-card" title="Operational limits">
+                <Descriptions column={1} size="small">
+                  <Descriptions.Item label="Max upload">{`${info.limits.maxUploadMb} MB`}</Descriptions.Item>
+                  <Descriptions.Item label="Max image edge">{`${info.limits.maxImageEdgePx} px`}</Descriptions.Item>
+                  <Descriptions.Item label="Session TTL">{`${info.limits.sessionTtlHours} hours`}</Descriptions.Item>
+                  <Descriptions.Item label="Password reset TTL">{`${info.limits.passwordResetTtlMinutes} minutes`}</Descriptions.Item>
+                </Descriptions>
+              </Card>
+            </Col>
+          </Row>
+          <Card className="admin-card" title="Application endpoints">
+            <Descriptions column={1} size="small">
+              <Descriptions.Item label="Portal">{info.applications.portalAppUrl ?? "—"}</Descriptions.Item>
+              <Descriptions.Item label="Designer">{info.applications.designerAppUrl ?? "—"}</Descriptions.Item>
+              <Descriptions.Item label="Admin">{info.applications.adminAppUrl ?? "—"}</Descriptions.Item>
+              <Descriptions.Item label="Commerce">{info.applications.commerceBaseUrl ?? "—"}</Descriptions.Item>
+              <Descriptions.Item label="Public API">{info.applications.publicApiUrl ?? "—"}</Descriptions.Item>
+            </Descriptions>
+          </Card>
+        </Space>
+      )}
     </div>
   );
 };
@@ -2066,6 +2761,21 @@ export const AssetsListPage = () => <ResourceListPage resourceName="assets" />;
 export const AssetsCreatePage = () => <AssetsCreateWorkspace />;
 export const AssetsEditPage = () => <ResourceFormPage resourceName="assets" mode="edit" />;
 export const AssetsShowPage = () => <ResourceShowPage resourceName="assets" />;
+
+export const AssetVariantsListPage = () => <ResourceListPage resourceName="asset-variants" />;
+export const AssetVariantsCreatePage = () => <ResourceFormPage resourceName="asset-variants" mode="create" />;
+export const AssetVariantsEditPage = () => <ResourceFormPage resourceName="asset-variants" mode="edit" />;
+export const AssetVariantsShowPage = () => <ResourceShowPage resourceName="asset-variants" />;
+
+export const FontFamiliesListPage = () => <ResourceListPage resourceName="font-families" />;
+export const FontFamiliesCreatePage = () => <ResourceFormPage resourceName="font-families" mode="create" />;
+export const FontFamiliesEditPage = () => <ResourceFormPage resourceName="font-families" mode="edit" />;
+export const FontFamiliesShowPage = () => <ResourceShowPage resourceName="font-families" />;
+
+export const FontFilesListPage = () => <ResourceListPage resourceName="font-files" />;
+export const FontFilesCreatePage = () => <ResourceFormPage resourceName="font-files" mode="create" />;
+export const FontFilesEditPage = () => <ResourceFormPage resourceName="font-files" mode="edit" />;
+export const FontFilesShowPage = () => <ResourceShowPage resourceName="font-files" />;
 
 export const UsersListPage = () => <ResourceListPage resourceName="users" />;
 export const UsersCreatePage = () => <ResourceFormPage resourceName="users" mode="create" />;

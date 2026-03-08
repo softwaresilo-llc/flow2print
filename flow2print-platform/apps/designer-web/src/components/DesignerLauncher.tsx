@@ -53,15 +53,15 @@ export const DesignerLauncher = ({
   return (
     <AppShell
       eyebrow="Designer"
-      title="Open or continue a project"
-      subtitle="This screen only starts or resumes work. The actual designer opens as a compact workspace and can be embedded in Magento as a modal or iframe."
+      title="Open a project"
+      subtitle="Start a new design or continue an existing one."
     >
       <div className="designer-launchpad">
         <section className="panel">
           <div className="section-heading">
             <div>
               <h3>Start a new design</h3>
-              <p>Select a product, then choose a blank start or one of the available templates.</p>
+              <p>Select a product and start blank or from a template.</p>
             </div>
           </div>
           <div className="product-grid">
@@ -89,7 +89,7 @@ export const DesignerLauncher = ({
             <div className="section-heading">
               <div>
                 <h3>Available templates</h3>
-                <p>Use a ready-made starting point for {selectedStarterLabel}.</p>
+                <p>Starting points for {selectedStarterLabel}.</p>
               </div>
               <span className="badge badge--neutral">{compatibleTemplates.length}</span>
             </div>
@@ -121,10 +121,10 @@ export const DesignerLauncher = ({
 
         <section className="panel">
           <div className="section-heading">
-            <div>
-              <h3>Recent projects</h3>
-              <p>Continue where you left off.</p>
-            </div>
+              <div>
+                <h3>Recent projects</h3>
+                <p>Continue your recent work.</p>
+              </div>
             <span className="badge badge--neutral">{recentProjects.length}</span>
           </div>
           {recentProjects.length === 0 ? <div className="empty-state">No projects yet. Start one above.</div> : null}

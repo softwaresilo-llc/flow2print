@@ -9,10 +9,29 @@ import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import { AppModule } from "./app.module.js";
 
 async function bootstrap() {
-  const app = await NestFactory.create<NestFastifyApplication>(
-    AppModule,
-    new FastifyAdapter(),
+  const adapter = new FastifyAdapter();
+  const fastify = adapter.getInstance();
+
+  fastify.addContentTypeParser(
+    [
+      "application/octet-stream",
+      "application/pdf",
+      "image/png",
+      "image/jpeg",
+      "image/webp",
+      "image/gif",
+      "image/tiff",
+      "image/svg+xml",
+      "font/woff",
+      "font/woff2",
+      "font/otf",
+      "font/ttf",
+    ],
+    { parseAs: "buffer" },
+    (_request, body, done) => done(null, body),
   );
+
+  const app = await NestFactory.create<NestFastifyApplication>(AppModule, adapter);
 
   app.enableCors({ origin: true });
   app.useGlobalPipes(

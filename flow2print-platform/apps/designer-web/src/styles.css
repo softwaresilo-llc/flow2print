@@ -66,9 +66,9 @@ select {
 
 .workspace-shell {
   min-height: 100vh;
-  padding: 12px;
+  padding: 10px;
   display: grid;
-  gap: 12px;
+  gap: 10px;
 }
 
 .workspace-shell--embedded {
@@ -88,20 +88,20 @@ select {
 .workspace-topbar {
   display: flex;
   justify-content: space-between;
-  gap: 16px;
+  gap: 10px;
   align-items: center;
-  padding: 12px 14px;
+  padding: 10px 14px;
 }
 
 .workspace-topbar--editor {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
 }
 
 .workspace-title {
   display: grid;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
 }
 
@@ -136,8 +136,8 @@ select {
 
 .workspace-layout {
   display: grid;
-  grid-template-columns: 300px minmax(0, 1fr) 280px;
-  gap: 16px;
+  grid-template-columns: 250px minmax(0, 1fr) 288px;
+  gap: 10px;
   align-items: start;
   min-height: 0;
   flex: 1;
@@ -169,13 +169,24 @@ select {
 }
 
 .panel {
-  padding: 14px;
+  padding: 12px;
   display: grid;
-  gap: 12px;
+  gap: 8px;
 }
 
 .panel--tight {
   gap: 10px;
+}
+
+.navigator-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.navigator-topbar strong {
+  font-size: 0.95rem;
 }
 
 .panel--subtle {
@@ -203,7 +214,7 @@ select {
 }
 
 .section-heading--compact p {
-  font-size: 0.84rem;
+  font-size: 0.8rem;
 }
 
 .section-heading h2,
@@ -524,8 +535,8 @@ select {
 .stage-header {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
-  align-items: flex-start;
+  gap: 8px;
+  align-items: center;
 }
 
 .stage-header--editor {
@@ -541,7 +552,7 @@ select {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 4px;
+  padding: 3px;
   border: 1px solid var(--line);
   border-radius: 999px;
   background: var(--panel-muted);
@@ -550,10 +561,10 @@ select {
 .workspace-mode {
   border: 0;
   border-radius: 999px;
-  padding: 8px 12px;
+  padding: 7px 11px;
   background: transparent;
   color: var(--muted);
-  font-size: 0.88rem;
+  font-size: 0.84rem;
   font-weight: 700;
 }
 
@@ -573,27 +584,27 @@ select {
 }
 
 .panel-tabs--navigator {
-  grid-template-columns: 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .stage-wrapper {
   border: 1px solid var(--line);
   background: var(--panel-muted);
   border-radius: 10px;
-  min-height: 640px;
+  min-height: 620px;
   display: grid;
-  padding: 20px;
+  padding: 12px;
   overflow: auto;
   align-content: start;
-  gap: 16px;
+  gap: 10px;
 }
 
 .workspace-alert {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  padding: 12px 14px;
+  gap: 12px;
+  padding: 10px 12px;
   border-radius: 10px;
   border: 1px solid var(--line);
   background: #fff7e8;
@@ -605,9 +616,9 @@ select {
 }
 
 .workspace-alert p {
-  margin: 4px 0 0;
+  margin: 2px 0 0;
   color: var(--muted);
-  font-size: 0.88rem;
+  font-size: 0.82rem;
 }
 
 .workspace-alert--subtle {
@@ -617,10 +628,10 @@ select {
 .stage-toolbar {
   display: flex;
   justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
   align-items: center;
   flex-wrap: wrap;
-  padding: 12px 14px;
+  padding: 8px 10px;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: #fff;
@@ -630,8 +641,8 @@ select {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 14px;
-  padding: 14px;
+  gap: 10px;
+  padding: 10px 12px;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: #fff;
@@ -656,78 +667,17 @@ select {
   gap: 6px;
 }
 
-.stage-toolbar__label {
-  color: var(--muted);
-  font-size: 0.72rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
-
-.readonly-strip {
-  display: grid;
-  gap: 2px;
-  padding: 10px 12px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: #fff;
-}
-
-.readonly-strip strong {
-  font-size: 0.92rem;
-}
-
-.readonly-strip span {
-  color: var(--muted);
-  font-size: 0.84rem;
-}
-
-.layout-guide-bar {
-  display: grid;
-  gap: 10px;
-  padding: 12px 14px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: #fff;
-}
-
-.layout-guide-bar__intro {
-  display: grid;
-  gap: 2px;
-}
-
-.layout-guide-bar__intro strong {
-  font-size: 0.94rem;
-}
-
-.layout-guide-bar__intro span {
-  color: var(--muted);
-  font-size: 0.86rem;
-}
-
-.layout-guide-bar__items {
+.layout-status-row {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
 }
 
-.layout-guide-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 10px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: #fbfcfd;
-  font-size: 0.85rem;
-  color: var(--text);
-}
-
 .selection-toolbar {
   display: grid;
-  gap: 10px;
-  padding: 12px 14px;
+  gap: 8px;
+  padding: 8px 10px;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: #fff;
@@ -786,7 +736,7 @@ select {
 }
 
 .workspace-stage--primary .stage-wrapper {
-  min-height: 700px;
+  min-height: 680px;
 }
 
 .artboard-shell {
@@ -829,12 +779,12 @@ select {
   inset: 18px;
   display: grid;
   place-items: center;
-  gap: 6px;
+  gap: 4px;
   color: var(--muted);
   border: 1px dashed var(--line-strong);
   border-radius: 6px;
   text-align: center;
-  padding: 18px;
+  padding: 14px;
   z-index: 2;
 }
 
@@ -846,6 +796,13 @@ select {
 .artboard__empty p {
   margin: 0;
   max-width: 340px;
+}
+
+.artboard__empty-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
 }
 
 .fabric-stage {
@@ -1091,7 +1048,8 @@ select {
 
 .inspector-empty {
   display: grid;
-  gap: 10px;
+  gap: 6px;
+  padding-top: 8px;
 }
 
 .inspector-empty__steps {
@@ -1383,7 +1341,7 @@ button:disabled {
 
 @media (max-width: 1180px) {
   .workspace-layout {
-    grid-template-columns: 280px minmax(0, 1fr) 272px;
+    grid-template-columns: 232px minmax(0, 1fr) 264px;
   }
 
   .workspace-topbar--editor {
@@ -1452,7 +1410,7 @@ button:disabled {
 
   .workspace-mode-switch {
     width: 100%;
-    justify-content: stretch;
+    justify-content: space-between;
   }
 
   .workspace-mode {

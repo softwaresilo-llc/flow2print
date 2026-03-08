@@ -17,10 +17,10 @@
 - Admin workspace currently runs on `5177`.
 - Designer currently runs on `5173`.
 - Edge API currently runs on `3000`.
-- The current backend persistence is still a runtime JSON store, not the planned PostgreSQL/Prisma production stack.
+- The current backend persistence is PostgreSQL + Prisma by default. Do not reintroduce JSON fallback persistence.
 - The admin workspace is now built with `Refine + React + TypeScript + Ant Design`.
 - The edge API currently uses `Fastify` directly, not `NestJS`.
-- The designer is not yet using `Fabric.js`; current stage behavior is custom React/DOM logic.
+- The designer uses `Fabric.js` for the interactive stage. Do not regress back to a custom DOM stage.
 
 ## Non-Negotiable Architecture Rules
 
@@ -121,7 +121,7 @@
 
 ## Immediate Priorities When Continuing Work
 
-- Move persistence from runtime JSON to the planned DB-backed path.
+- Keep the PostgreSQL-backed path as the only runtime persistence path.
 - Keep admin CRUD and previews working while refactoring the backend.
 - Continue replacing technical/raw values in the UI with human-readable labels and selectors.
 - Keep mail, settings, and project flows browser-tested after each meaningful change.

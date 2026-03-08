@@ -3,17 +3,22 @@ import { Refine, Authenticated } from "@refinedev/core";
 import routerProvider, { UnsavedChangesNotifier } from "@refinedev/react-router";
 import { ConfigProvider, App as AntdApp, Avatar, Dropdown, Layout, Menu, Space, Typography, type MenuProps } from "antd";
 import { BrowserRouter, Link, Navigate, Outlet, Route, Routes, useLocation, useNavigate } from "react-router-dom";
-import { DownOutlined, LogoutOutlined, SettingOutlined, UserOutlined } from "@ant-design/icons";
+import { DownOutlined, InfoCircleOutlined, LogoutOutlined, SettingOutlined, UserOutlined } from "@ant-design/icons";
 
 import { adminResources, dashboardNavItem } from "./resources.js";
 import { authProvider } from "./providers/authProvider.js";
 import { dataProvider } from "./providers/dataProvider.js";
+import { requestJson, resolveApiUrl } from "./providers/api.js";
 import {
   AccountPage,
   ApiTokensCreatePage,
   ApiTokensEditPage,
   ApiTokensListPage,
   ApiTokensShowPage,
+  AssetVariantsCreatePage,
+  AssetVariantsEditPage,
+  AssetVariantsListPage,
+  AssetVariantsShowPage,
   AssetsCreatePage,
   AssetsEditPage,
   AssetsListPage,
@@ -32,11 +37,20 @@ import {
   EmailTemplatesEditPage,
   EmailTemplatesListPage,
   EmailTemplatesShowPage,
+  FontFamiliesCreatePage,
+  FontFamiliesEditPage,
+  FontFamiliesListPage,
+  FontFamiliesShowPage,
+  FontFilesCreatePage,
+  FontFilesEditPage,
+  FontFilesListPage,
+  FontFilesShowPage,
   ProjectsEditPage,
   ProjectsCreatePage,
   ProjectsListPage,
   ProjectsShowPage,
   SettingsPage,
+  SystemInfoPage,
   TemplatesCreatePage,
   TemplatesEditPage,
   TemplatesListPage,
@@ -73,6 +87,7 @@ const AppLayout = () => {
   const navigate = useNavigate();
   const [collapsed, setCollapsed] = useState(false);
   const [identity, setIdentity] = useState<{ name?: string; email?: string } | null>(null);
+  const [settings, setSettings] = useState<{ brandName?: string; logoText?: string; logoUrl?: string; logoAssetId?: string | null } | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -98,13 +113,37 @@ const AppLayout = () => {
     };
   }, [location.pathname]);
 
+  useEffect(() => {
+    let active = true;
+    requestJson<{ brandName?: string; logoText?: string; logoUrl?: string; logoAssetId?: string | null }>("/v1/settings")
+      .then((payload) => {
+        if (active) {
+          setSettings(payload);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setSettings(null);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const menuItems = [
     dashboardNavItem,
     ...adminResources.map((resource) => ({
       key: resource.listPath,
       icon: resource.icon,
       label: resource.label
-    }))
+    })),
+    {
+      key: "/system-info",
+      icon: <InfoCircleOutlined />,
+      label: "System Info"
+    }
   ];
 
   const selectedKey =
@@ -170,10 +209,20 @@ const AppLayout = () => {
         className="admin-sider"
       >
         <div className="admin-brand">
-          <div className="admin-brand-mark">F2P</div>
+          {settings?.logoUrl || settings?.logoAssetId ? (
+            <div className="admin-brand-mark admin-brand-mark--image">
+              <img
+                src={settings.logoUrl || resolveApiUrl(`/v1/assets/${settings?.logoAssetId}/file`)}
+                alt={settings.brandName ?? "Brand logo"}
+                className="admin-brand-logo"
+              />
+            </div>
+          ) : (
+            <div className="admin-brand-mark">{settings?.logoText ?? "F2P"}</div>
+          )}
           {!collapsed ? (
             <div>
-              <Title level={4}>Flow2Print</Title>
+              <Title level={4}>{settings?.brandName ?? "Flow2Print"}</Title>
               <Text type="secondary">Admin workspace</Text>
             </div>
           ) : null}
@@ -189,7 +238,7 @@ const AppLayout = () => {
       <Layout>
         <Header className="admin-header">
           <div className="admin-header-copy">
-            <Text type="secondary">Flow2Print</Text>
+            <Text type="secondary">{settings?.brandName ?? "Flow2Print"}</Text>
             <Title level={4}>Admin workspace</Title>
           </div>
           <Dropdown
@@ -297,6 +346,21 @@ export const AdminApp = () => (
               <Route path="/assets/edit/:id" element={<AssetsEditPage />} />
               <Route path="/assets/show/:id" element={<AssetsShowPage />} />
 
+              <Route path="/asset-variants" element={<AssetVariantsListPage />} />
+              <Route path="/asset-variants/create" element={<AssetVariantsCreatePage />} />
+              <Route path="/asset-variants/edit/:id" element={<AssetVariantsEditPage />} />
+              <Route path="/asset-variants/show/:id" element={<AssetVariantsShowPage />} />
+
+              <Route path="/font-families" element={<FontFamiliesListPage />} />
+              <Route path="/font-families/create" element={<FontFamiliesCreatePage />} />
+              <Route path="/font-families/edit/:id" element={<FontFamiliesEditPage />} />
+              <Route path="/font-families/show/:id" element={<FontFamiliesShowPage />} />
+
+              <Route path="/font-files" element={<FontFilesListPage />} />
+              <Route path="/font-files/create" element={<FontFilesCreatePage />} />
+              <Route path="/font-files/edit/:id" element={<FontFilesEditPage />} />
+              <Route path="/font-files/show/:id" element={<FontFilesShowPage />} />
+
               <Route path="/users" element={<UsersListPage />} />
               <Route path="/users/create" element={<UsersCreatePage />} />
               <Route path="/users/edit/:id" element={<UsersEditPage />} />
@@ -320,6 +384,7 @@ export const AdminApp = () => (
               <Route path="/email-templates/show/:id" element={<EmailTemplatesShowPage />} />
 
               <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/system-info" element={<SystemInfoPage />} />
             </Route>
 
             <Route path="*" element={<AuthDebugPage />} />

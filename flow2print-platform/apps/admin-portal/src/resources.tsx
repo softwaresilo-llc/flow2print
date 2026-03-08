@@ -19,6 +19,9 @@ export type AdminResourceName =
   | "templates"
   | "blueprints"
   | "assets"
+  | "asset-variants"
+  | "font-families"
+  | "font-files"
   | "users"
   | "roles"
   | "api-tokens"
@@ -26,7 +29,7 @@ export type AdminResourceName =
   | "email-templates"
   | "settings";
 export type FieldType = "text" | "textarea" | "select" | "multiselect" | "email" | "password" | "number" | "date" | "status";
-export type OptionSource = "blueprints" | "templates" | "roles";
+export type OptionSource = "blueprints" | "templates" | "roles" | "assets" | "font-families";
 
 export interface SelectOption {
   label: string;
@@ -278,9 +281,196 @@ export const adminResources: AdminResourceConfig[] = [
           { label: "Technical", value: "technical" }
         ]
       },
+      {
+        key: "status",
+        label: "Status",
+        type: "status",
+        list: true,
+        form: true,
+        show: true,
+        options: [
+          { label: "Pending", value: "pending" },
+          { label: "Processing", value: "processing" },
+          { label: "Ready", value: "ready" },
+          { label: "Failed", value: "failed" }
+        ]
+      },
       { key: "mimeType", label: "MIME type", type: "text", searchable: true, list: true, form: true, show: true },
+      { key: "sizeBytes", label: "File size", type: "number", list: true, form: true, show: true },
       { key: "widthPx", label: "Width", type: "number", list: true, form: true, show: true },
-      { key: "heightPx", label: "Height", type: "number", list: true, form: true, show: true }
+      { key: "heightPx", label: "Height", type: "number", list: true, form: true, show: true },
+      { key: "dpiX", label: "DPI X", type: "number", list: false, form: true, show: true },
+      { key: "dpiY", label: "DPI Y", type: "number", list: false, form: true, show: true },
+      { key: "colorSpace", label: "Color space", type: "text", searchable: true, list: true, form: true, show: true },
+      {
+        key: "originalObjectKey",
+        label: "Original object key",
+        type: "text",
+        searchable: true,
+        list: false,
+        form: true,
+        show: true,
+        placeholder: "assets-original/org/demo/logo.png"
+      },
+      {
+        key: "normalizedObjectKey",
+        label: "Normalized object key",
+        type: "text",
+        searchable: true,
+        list: false,
+        form: true,
+        show: true,
+        placeholder: "assets-derived/org/demo/logo-normalized.png"
+      },
+      {
+        key: "iccProfileRef",
+        label: "ICC profile",
+        type: "text",
+        searchable: true,
+        list: false,
+        form: true,
+        show: true,
+        placeholder: "sRGB IEC61966-2.1"
+      },
+      {
+        key: "sha256",
+        label: "SHA-256",
+        type: "text",
+        searchable: true,
+        list: false,
+        form: true,
+        show: true,
+        placeholder: "hex digest"
+      },
+      { key: "createdAt", label: "Created", type: "date", list: false, show: true, disabled: true },
+      { key: "updatedAt", label: "Updated", type: "date", list: false, show: true, disabled: true }
+    ]
+  },
+  {
+    name: "asset-variants",
+    label: "Asset Variants",
+    singularLabel: "Asset variant",
+    description: "Track generated thumb, web, normalized, and font preview files for uploaded assets.",
+    listPath: "/asset-variants",
+    createPath: "/asset-variants/create",
+    editPath: "/asset-variants/edit/:id",
+    showPath: "/asset-variants/show/:id",
+    icon: <FileImageOutlined />,
+    canCreate: true,
+    canEdit: true,
+    canDelete: true,
+    emptyTitle: "No asset variants yet",
+    emptyDescription: "Variants will appear here once files are processed into thumbs, web previews, or normalized masters.",
+    fields: [
+      { key: "assetId", label: "Asset", type: "select", list: true, form: true, show: true, required: true, optionSource: "assets" },
+      {
+        key: "variantKind",
+        label: "Variant",
+        type: "select",
+        list: true,
+        form: true,
+        show: true,
+        required: true,
+        options: [
+          { label: "Thumb", value: "thumb" },
+          { label: "Web", value: "web" },
+          { label: "Normalized", value: "normalized" },
+          { label: "WOFF2", value: "woff2" }
+        ]
+      },
+      { key: "objectKey", label: "Object key", type: "text", searchable: true, list: true, form: true, show: true, required: true },
+      { key: "mimeType", label: "MIME type", type: "text", searchable: true, list: true, form: true, show: true, required: true },
+      { key: "widthPx", label: "Width", type: "number", list: true, form: true, show: true },
+      { key: "heightPx", label: "Height", type: "number", list: true, form: true, show: true },
+      { key: "byteSize", label: "File size", type: "number", list: true, form: true, show: true },
+      { key: "createdAt", label: "Created", type: "date", list: false, show: true }
+    ]
+  },
+  {
+    name: "font-families",
+    label: "Font Families",
+    singularLabel: "Font family",
+    description: "Manage the approved font registry that templates and projects can reference.",
+    listPath: "/font-families",
+    createPath: "/font-families/create",
+    editPath: "/font-families/edit/:id",
+    showPath: "/font-families/show/:id",
+    icon: <FileTextOutlined />,
+    canCreate: true,
+    canEdit: true,
+    canDelete: true,
+    emptyTitle: "No font families yet",
+    emptyDescription: "Register upload, system, or cached font families before assigning actual files.",
+    fields: [
+      { key: "familyKey", label: "Family key", type: "text", searchable: true, list: true, form: true, show: true, required: true },
+      { key: "displayName", label: "Display name", type: "text", searchable: true, list: true, form: true, show: true, required: true },
+      {
+        key: "source",
+        label: "Source",
+        type: "select",
+        list: true,
+        form: true,
+        show: true,
+        required: true,
+        options: [
+          { label: "Upload", value: "upload" },
+          { label: "System", value: "system" },
+          { label: "Google cache", value: "google_cache" }
+        ]
+      },
+      {
+        key: "status",
+        label: "Status",
+        type: "status",
+        list: true,
+        form: true,
+        show: true,
+        options: [
+          { label: "Active", value: "active" },
+          { label: "Disabled", value: "disabled" }
+        ]
+      },
+      { key: "createdAt", label: "Created", type: "date", list: false, show: true },
+      { key: "updatedAt", label: "Updated", type: "date", list: false, show: true }
+    ]
+  },
+  {
+    name: "font-files",
+    label: "Font Files",
+    singularLabel: "Font file",
+    description: "Map uploaded or generated files to font families, formats, weights, and styles.",
+    listPath: "/font-files",
+    createPath: "/font-files/create",
+    editPath: "/font-files/edit/:id",
+    showPath: "/font-files/show/:id",
+    icon: <FileTextOutlined />,
+    canCreate: true,
+    canEdit: true,
+    canDelete: true,
+    emptyTitle: "No font files yet",
+    emptyDescription: "Attach concrete font files to a family so the designer and renderer can resolve them consistently.",
+    fields: [
+      { key: "fontFamilyId", label: "Font family", type: "select", list: true, form: true, show: true, required: true, optionSource: "font-families" },
+      { key: "assetId", label: "Asset", type: "select", list: true, form: true, show: true, optionSource: "assets", placeholder: "Optional" },
+      { key: "fileKey", label: "File key", type: "text", searchable: true, list: true, form: true, show: true, required: true },
+      {
+        key: "format",
+        label: "Format",
+        type: "select",
+        list: true,
+        form: true,
+        show: true,
+        required: true,
+        options: [
+          { label: "TTF", value: "ttf" },
+          { label: "OTF", value: "otf" },
+          { label: "WOFF", value: "woff" },
+          { label: "WOFF2", value: "woff2" }
+        ]
+      },
+      { key: "weight", label: "Weight", type: "text", list: true, form: true, show: true, placeholder: "400" },
+      { key: "style", label: "Style", type: "text", list: true, form: true, show: true, placeholder: "normal" },
+      { key: "createdAt", label: "Created", type: "date", list: false, show: true }
     ]
   },
   {
@@ -549,7 +739,14 @@ export const adminResources: AdminResourceConfig[] = [
         form: true,
         show: true,
         required: true,
-        options: [{ label: "Password reset", value: "password_reset" }]
+        options: [
+          { label: "Password reset", value: "password_reset" },
+          { label: "Admin welcome", value: "welcome_admin" },
+          { label: "User invite", value: "user_invite" },
+          { label: "Account created", value: "account_created" },
+          { label: "Project finalized", value: "project_finalized" },
+          { label: "Approval requested", value: "approval_requested" }
+        ]
       },
       {
         key: "subject",

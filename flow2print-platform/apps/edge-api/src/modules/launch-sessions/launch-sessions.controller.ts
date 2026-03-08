@@ -12,6 +12,7 @@ import { RuntimeStoreService } from "../../services/runtime-store.service.js";
 import { SessionOrScopeGuard } from "../../common/guards/auth.guard.js";
 import { Scopes } from "../../common/decorators/scopes.decorator.js";
 import { Roles } from "../../common/decorators/roles.decorator.js";
+import { Public } from "../../common/decorators/public.decorator.js";
 import { launchSessionRequestSchema } from "@flow2print/http-sdk";
 
 @ApiTags("launch-sessions")
@@ -51,6 +52,7 @@ export class LaunchSessionsController {
   }
 
   @Get(":id")
+  @Public()
   @ApiOperation({ summary: "Get launch session by ID" })
   async get(@Param("id") id: string) {
     const session = await this.store.instance.getLaunchSession(id);

@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 
 interface DesignerInspectorPanelProps {
   title: string;
-  description: string;
+  description?: string;
   children: ReactNode;
 }
 
@@ -15,7 +15,7 @@ export const DesignerInspectorPanel = ({
     <div className="section-heading section-heading--compact">
       <div>
         <h3>{title}</h3>
-        <p>{description}</p>
+        {description ? <p>{description}</p> : null}
       </div>
     </div>
     {children}

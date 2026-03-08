@@ -56,6 +56,18 @@ body {
   letter-spacing: 0.04em;
 }
 
+.admin-brand-mark--image {
+  background: rgba(255, 255, 255, 0.95);
+  overflow: hidden;
+}
+
+.admin-brand-logo {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
 .admin-brand .ant-typography {
   margin: 0;
   color: #f5f8fb;
@@ -209,6 +221,14 @@ body {
   padding: 22px;
 }
 
+.admin-top-tabs .ant-tabs-nav {
+  margin-bottom: 20px;
+}
+
+.admin-top-tabs .ant-tabs-tab {
+  border-radius: 10px;
+}
+
 .admin-toolbar {
   display: flex;
   align-items: center;
@@ -319,6 +339,15 @@ body {
   border: 1px solid #e3eaf3;
   border-radius: 16px;
   background: #fff;
+}
+
+.admin-asset-preview-shell {
+  display: grid;
+  gap: 12px;
+}
+
+.admin-field {
+  margin-top: 6px;
 }
 
 .admin-form-section {
@@ -508,6 +537,10 @@ body {
 
   .admin-filters .ant-select {
     min-width: 100%;
+  }
+
+  .admin-top-tabs .ant-tabs-tab {
+    padding-inline: 10px;
   }
 
   .admin-auth-panel {

@@ -17,7 +17,6 @@ export const DesignerWorkspaceTopbar = ({
 }: DesignerWorkspaceTopbarProps) => (
   <header className="workspace-topbar workspace-topbar--editor">
     <div className="workspace-title">
-      <p className="workspace-label">Project</p>
       <h1>{projectTitle}</h1>
       <div className="badge-row">{badges}</div>
     </div>
@@ -27,21 +26,21 @@ export const DesignerWorkspaceTopbar = ({
         className={`workspace-mode ${mode === "edit" ? "workspace-mode--active" : ""}`}
         onClick={() => onModeChange("edit")}
       >
-        Edit
+        Design
       </button>
       <button
         type="button"
         className={`workspace-mode ${mode === "review" ? "workspace-mode--active" : ""}`}
         onClick={() => onModeChange("review")}
       >
-        Review
+        Check
       </button>
       <button
         type="button"
         className={`workspace-mode ${mode === "finish" ? "workspace-mode--active" : ""}`}
         onClick={() => onModeChange("finish")}
       >
-        Finish
+        Files
       </button>
     </div>
     <div className="workspace-actions workspace-actions--editor">{actions}</div>

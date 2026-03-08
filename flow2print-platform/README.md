@@ -7,7 +7,7 @@ Flow2Print is an open source Web2Print platform built as a separate system with 
 - React + TypeScript frontends for `designer-web` and `portal-web`
 - Fastify-based HTTP services aligned to the planned service boundaries
 - Shared `design-document`, `domain`, `runtime-store`, and `event-contracts` packages
-- Local JSON-backed runtime state for launch sessions, projects, assets, outputs, preflight reports, and Magento commerce links
+- PostgreSQL-backed runtime state for launch sessions, projects, assets, outputs, preflight reports, and Magento commerce links
 - Docker Compose infrastructure for Postgres, Redis, RabbitMQ, MinIO, Mailpit, Prometheus, and Grafana
 - Exported JSON schema and OpenAPI contract snapshots under `schemas/`
 

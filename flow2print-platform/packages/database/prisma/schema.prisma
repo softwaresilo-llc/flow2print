@@ -118,16 +118,27 @@ model SystemSettings {
   companyName     String
   companyAddress  String
   supportEmail    String
+  salesEmail      String
+  supportPhone    String
   mailFromName    String
   mailFromAddress String
+  replyToEmail    String
   primaryColor    String
   logoText        String
+  logoUrl         String
+  logoAssetId     String?
   portalAppUrl    String
   designerAppUrl  String
   adminAppUrl     String
   commerceBaseUrl String
+  publicApiUrl    String
   defaultLocale   String
   defaultTimezone String
+  defaultCurrency String
+  sessionTtlHours Int
+  passwordResetTtlMinutes Int
+  maxUploadMb     Int
+  maxImageEdgePx  Int
   updatedAt       DateTime
 }
 
@@ -168,11 +179,70 @@ model Asset {
   tenantId        String
   ownerIdentityId String
   kind            String
+  status          String   @default("ready")
   filename        String
   mimeType        String
+  originalObjectKey   String?
+  normalizedObjectKey String?
+  sizeBytes       Int?
   widthPx         Int?
   heightPx        Int?
-  createdAt       DateTime
+  dpiX            Float?
+  dpiY            Float?
+  colorSpace      String?
+  iccProfileRef   String?
+  sha256          String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  variants        AssetVariant[]
+  fontFiles       FontFile[]
+}
+
+model AssetVariant {
+  id          String   @id
+  assetId     String
+  variantKind String
+  objectKey   String
+  mimeType    String
+  widthPx     Int?
+  heightPx    Int?
+  byteSize    Int?
+  createdAt   DateTime @default(now())
+
+  asset       Asset    @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@unique([assetId, variantKind])
+  @@index([variantKind])
+}
+
+model FontFamily {
+  id          String   @id
+  familyKey   String   @unique
+  displayName String
+  source      String
+  status      String   @default("active")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  files       FontFile[]
+}
+
+model FontFile {
+  id           String   @id
+  fontFamilyId String
+  assetId      String?
+  fileKey      String
+  format       String
+  weight       String?
+  style        String?
+  createdAt    DateTime @default(now())
+
+  fontFamily   FontFamily @relation(fields: [fontFamilyId], references: [id], onDelete: Cascade)
+  asset        Asset?     @relation(fields: [assetId], references: [id], onDelete: SetNull)
+
+  @@index([fontFamilyId])
+  @@index([assetId])
 }
 
 model Project {

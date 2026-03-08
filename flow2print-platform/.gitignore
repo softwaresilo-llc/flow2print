@@ -9,8 +9,11 @@ coverage/
 .env.*.local
 *.log
 *.tsbuildinfo
-.flow2print-state.json
 .flow2print-runtime/
+.flow2print-runtime*/
+.flow2print-state.json
+.flow2print-object-storage/
+.flow2print-object-storage*/
 .DS_Store
 apps/*/vite.config.js
 apps/*/vite.config.js.map

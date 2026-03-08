@@ -6,14 +6,6 @@ declare global {
 }
 
 export const isPostgresPersistenceEnabled = () => {
-  if (process.env.FLOW2PRINT_PERSISTENCE === "json") {
-    return false;
-  }
-
-  if (process.env.FLOW2PRINT_PERSISTENCE === "postgres") {
-    return true;
-  }
-
   return Boolean(readDatabaseUrl());
 };
 

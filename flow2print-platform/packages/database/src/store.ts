@@ -39,7 +39,10 @@ import {
   type SystemSettingsRecord,
   type TemplateSummary,
   type UserRecord,
-  verifyPassword
+  verifyPassword,
+  type AssetVariantRecord,
+  type FontFamilyRecord,
+  type FontFileRecord
 } from "@flow2print/domain";
 import type { ApplyTemplateRequest, FinalizeProjectRequest, LaunchSessionRequest } from "@flow2print/http-sdk";
 
@@ -174,32 +177,54 @@ const mapSettings = (record: {
   companyName: string;
   companyAddress: string;
   supportEmail: string;
+  salesEmail: string;
+  supportPhone: string;
   mailFromName: string;
   mailFromAddress: string;
+  replyToEmail: string;
   primaryColor: string;
   logoText: string;
+  logoUrl: string;
+  logoAssetId: string | null;
   portalAppUrl: string;
   designerAppUrl: string;
   adminAppUrl: string;
   commerceBaseUrl: string;
+  publicApiUrl: string;
   defaultLocale: string;
   defaultTimezone: string;
+  defaultCurrency: string;
+  sessionTtlHours: number;
+  passwordResetTtlMinutes: number;
+  maxUploadMb: number;
+  maxImageEdgePx: number;
   updatedAt: Date;
 }): SystemSettingsRecord => ({
   brandName: record.brandName,
   companyName: record.companyName,
   companyAddress: record.companyAddress,
   supportEmail: record.supportEmail,
+  salesEmail: record.salesEmail,
+  supportPhone: record.supportPhone,
   mailFromName: record.mailFromName,
   mailFromAddress: record.mailFromAddress,
+  replyToEmail: record.replyToEmail,
   primaryColor: record.primaryColor,
   logoText: record.logoText,
+  logoUrl: record.logoUrl,
+  logoAssetId: record.logoAssetId,
   portalAppUrl: record.portalAppUrl,
   designerAppUrl: record.designerAppUrl,
   adminAppUrl: record.adminAppUrl,
   commerceBaseUrl: record.commerceBaseUrl,
+  publicApiUrl: record.publicApiUrl,
   defaultLocale: record.defaultLocale,
   defaultTimezone: record.defaultTimezone,
+  defaultCurrency: record.defaultCurrency,
+  sessionTtlHours: record.sessionTtlHours,
+  passwordResetTtlMinutes: record.passwordResetTtlMinutes,
+  maxUploadMb: record.maxUploadMb,
+  maxImageEdgePx: record.maxImageEdgePx,
   updatedAt: record.updatedAt.toISOString()
 });
 
@@ -224,20 +249,100 @@ const mapAsset = (record: {
   tenantId: string;
   ownerIdentityId: string;
   kind: string;
+  status: string;
   filename: string;
   mimeType: string;
+  originalObjectKey: string | null;
+  normalizedObjectKey: string | null;
+  sizeBytes: number | null;
   widthPx: number | null;
   heightPx: number | null;
+  dpiX: number | null;
+  dpiY: number | null;
+  colorSpace: string | null;
+  iccProfileRef: string | null;
+  sha256: string | null;
   createdAt: Date;
+  updatedAt: Date;
 }): AssetRecord => ({
   id: record.id,
   tenantId: record.tenantId,
   ownerIdentityId: record.ownerIdentityId,
   kind: record.kind as AssetRecord["kind"],
+  status: record.status as AssetRecord["status"],
   filename: record.filename,
+  mimeType: record.mimeType,
+  originalObjectKey: record.originalObjectKey,
+  normalizedObjectKey: record.normalizedObjectKey,
+  sizeBytes: record.sizeBytes,
+  widthPx: record.widthPx,
+  heightPx: record.heightPx,
+  dpiX: record.dpiX,
+  dpiY: record.dpiY,
+  colorSpace: record.colorSpace,
+  iccProfileRef: record.iccProfileRef,
+  sha256: record.sha256,
+  createdAt: record.createdAt.toISOString(),
+  updatedAt: record.updatedAt.toISOString()
+});
+
+const mapAssetVariant = (record: {
+  id: string;
+  assetId: string;
+  variantKind: string;
+  objectKey: string;
+  mimeType: string;
+  widthPx: number | null;
+  heightPx: number | null;
+  byteSize: number | null;
+  createdAt: Date;
+}): AssetVariantRecord => ({
+  id: record.id,
+  assetId: record.assetId,
+  variantKind: record.variantKind as AssetVariantRecord["variantKind"],
+  objectKey: record.objectKey,
   mimeType: record.mimeType,
   widthPx: record.widthPx,
   heightPx: record.heightPx,
+  byteSize: record.byteSize,
+  createdAt: record.createdAt.toISOString()
+});
+
+const mapFontFamily = (record: {
+  id: string;
+  familyKey: string;
+  displayName: string;
+  source: string;
+  status: string;
+  createdAt: Date;
+  updatedAt: Date;
+}): FontFamilyRecord => ({
+  id: record.id,
+  familyKey: record.familyKey,
+  displayName: record.displayName,
+  source: record.source as FontFamilyRecord["source"],
+  status: record.status as FontFamilyRecord["status"],
+  createdAt: record.createdAt.toISOString(),
+  updatedAt: record.updatedAt.toISOString()
+});
+
+const mapFontFile = (record: {
+  id: string;
+  fontFamilyId: string;
+  assetId: string | null;
+  fileKey: string;
+  format: string;
+  weight: string | null;
+  style: string | null;
+  createdAt: Date;
+}): FontFileRecord => ({
+  id: record.id,
+  fontFamilyId: record.fontFamilyId,
+  assetId: record.assetId,
+  fileKey: record.fileKey,
+  format: record.format as FontFileRecord["format"],
+  weight: record.weight,
+  style: record.style,
   createdAt: record.createdAt.toISOString()
 });
 
@@ -661,16 +766,27 @@ export class DatabaseRuntimeStore {
           companyName: input.companyName ?? current.companyName,
           companyAddress: input.companyAddress ?? current.companyAddress,
           supportEmail: input.supportEmail ?? current.supportEmail,
+          salesEmail: input.salesEmail ?? current.salesEmail,
+          supportPhone: input.supportPhone ?? current.supportPhone,
           mailFromName: input.mailFromName ?? current.mailFromName,
           mailFromAddress: input.mailFromAddress ?? current.mailFromAddress,
+          replyToEmail: input.replyToEmail ?? current.replyToEmail,
           primaryColor: input.primaryColor ?? current.primaryColor,
           logoText: input.logoText ?? current.logoText,
+          logoUrl: input.logoUrl ?? current.logoUrl,
+          logoAssetId: typeof input.logoAssetId === "undefined" ? current.logoAssetId : input.logoAssetId,
           portalAppUrl: input.portalAppUrl ?? current.portalAppUrl,
           designerAppUrl: input.designerAppUrl ?? current.designerAppUrl,
           adminAppUrl: input.adminAppUrl ?? current.adminAppUrl,
           commerceBaseUrl: input.commerceBaseUrl ?? current.commerceBaseUrl,
+          publicApiUrl: input.publicApiUrl ?? current.publicApiUrl,
           defaultLocale: input.defaultLocale ?? current.defaultLocale,
           defaultTimezone: input.defaultTimezone ?? current.defaultTimezone,
+          defaultCurrency: input.defaultCurrency ?? current.defaultCurrency,
+          sessionTtlHours: input.sessionTtlHours ?? current.sessionTtlHours,
+          passwordResetTtlMinutes: input.passwordResetTtlMinutes ?? current.passwordResetTtlMinutes,
+          maxUploadMb: input.maxUploadMb ?? current.maxUploadMb,
+          maxImageEdgePx: input.maxImageEdgePx ?? current.maxImageEdgePx,
           updatedAt: new Date()
         }
       })
@@ -718,16 +834,27 @@ export class DatabaseRuntimeStore {
       companyName: settings.companyName,
       companyAddress: settings.companyAddress,
       supportEmail: settings.supportEmail,
+      salesEmail: settings.salesEmail,
+      supportPhone: settings.supportPhone,
       mailFromName: settings.mailFromName,
       mailFromAddress: settings.mailFromAddress,
+      replyToEmail: settings.replyToEmail,
       logoText: settings.logoText,
       primaryColor: settings.primaryColor,
+      logoUrl: settings.logoUrl,
+      logoAssetId: settings.logoAssetId ?? "",
       portalAppUrl: settings.portalAppUrl,
       designerAppUrl: settings.designerAppUrl,
       adminAppUrl: settings.adminAppUrl,
       commerceBaseUrl: settings.commerceBaseUrl,
+      publicApiUrl: settings.publicApiUrl,
       defaultLocale: settings.defaultLocale,
       defaultTimezone: settings.defaultTimezone,
+      defaultCurrency: settings.defaultCurrency,
+      sessionTtlHours: String(settings.sessionTtlHours),
+      passwordResetTtlMinutes: String(settings.passwordResetTtlMinutes),
+      maxUploadMb: String(settings.maxUploadMb),
+      maxImageEdgePx: String(settings.maxImageEdgePx),
       recipientEmail: input.recipientEmail ?? "customer@example.com",
       resetToken: input.resetToken ?? "reset_demo_token"
     };
@@ -1050,6 +1177,7 @@ export class DatabaseRuntimeStore {
 
   async createPasswordReset(email: string) {
     await this.ensureSeeded();
+    const settings = await this.getSystemSettings();
     const userRow = await this.prisma.user.findUnique({ where: { email: email.toLowerCase() } });
     if (!userRow) {
       return null;
@@ -1061,7 +1189,7 @@ export class DatabaseRuntimeStore {
         token: `reset_${randomUUID()}`,
         status: "pending",
         createdAt: new Date(),
-        expiresAt: new Date(Date.now() + 30 * 60 * 1000)
+        expiresAt: new Date(Date.now() + settings.passwordResetTtlMinutes * 60 * 1000)
       }
     });
     const preview = await this.getEmailPreview("emt_password_reset", {
@@ -1302,7 +1430,28 @@ export class DatabaseRuntimeStore {
     return (await this.prisma.asset.findMany({ orderBy: { createdAt: "desc" } })).map(mapAsset);
   }
 
-  async createAsset(input: { filename: string; kind?: AssetRecord["kind"]; mimeType?: string; widthPx?: number | null; heightPx?: number | null }) {
+  async getAsset(id: string) {
+    await this.ensureSeeded();
+    const asset = await this.prisma.asset.findUnique({ where: { id } });
+    return asset ? mapAsset(asset) : null;
+  }
+
+  async createAsset(input: {
+    filename: string;
+    kind?: AssetRecord["kind"];
+    mimeType?: string;
+    status?: AssetRecord["status"];
+    originalObjectKey?: string | null;
+    normalizedObjectKey?: string | null;
+    sizeBytes?: number | null;
+    widthPx?: number | null;
+    heightPx?: number | null;
+    dpiX?: number | null;
+    dpiY?: number | null;
+    colorSpace?: string | null;
+    iccProfileRef?: string | null;
+    sha256?: string | null;
+  }) {
     await this.ensureSeeded();
     const asset = createAssetRecord(input);
     await this.prisma.asset.create({
@@ -1311,17 +1460,48 @@ export class DatabaseRuntimeStore {
         tenantId: asset.tenantId,
         ownerIdentityId: asset.ownerIdentityId,
         kind: asset.kind,
+        status: asset.status,
         filename: asset.filename,
         mimeType: asset.mimeType,
+        originalObjectKey: asset.originalObjectKey,
+        normalizedObjectKey: asset.normalizedObjectKey,
+        sizeBytes: asset.sizeBytes,
         widthPx: asset.widthPx,
         heightPx: asset.heightPx,
-        createdAt: new Date(asset.createdAt)
+        dpiX: asset.dpiX,
+        dpiY: asset.dpiY,
+        colorSpace: asset.colorSpace,
+        iccProfileRef: asset.iccProfileRef,
+        sha256: asset.sha256,
+        createdAt: new Date(asset.createdAt),
+        updatedAt: new Date(asset.updatedAt)
       }
     });
     return asset;
   }
 
-  async updateAsset(id: string, input: Partial<Pick<AssetRecord, "filename" | "kind" | "mimeType" | "widthPx" | "heightPx">>) {
+  async updateAsset(
+    id: string,
+    input: Partial<
+      Pick<
+        AssetRecord,
+        | "filename"
+        | "kind"
+        | "status"
+        | "mimeType"
+        | "originalObjectKey"
+        | "normalizedObjectKey"
+        | "sizeBytes"
+        | "widthPx"
+        | "heightPx"
+        | "dpiX"
+        | "dpiY"
+        | "colorSpace"
+        | "iccProfileRef"
+        | "sha256"
+      >
+    >
+  ) {
     await this.ensureSeeded();
     const current = await this.prisma.asset.findUnique({ where: { id } });
     if (!current) {
@@ -1333,9 +1513,18 @@ export class DatabaseRuntimeStore {
         data: {
           filename: input.filename?.trim() ? input.filename.trim() : current.filename,
           kind: input.kind ?? current.kind,
+          status: input.status ?? current.status,
           mimeType: input.mimeType?.trim() ? input.mimeType.trim() : current.mimeType,
+          originalObjectKey: input.originalObjectKey ?? current.originalObjectKey,
+          normalizedObjectKey: input.normalizedObjectKey ?? current.normalizedObjectKey,
+          sizeBytes: input.sizeBytes ?? current.sizeBytes,
           widthPx: input.widthPx ?? current.widthPx,
-          heightPx: input.heightPx ?? current.heightPx
+          heightPx: input.heightPx ?? current.heightPx,
+          dpiX: input.dpiX ?? current.dpiX,
+          dpiY: input.dpiY ?? current.dpiY,
+          colorSpace: input.colorSpace ?? current.colorSpace,
+          iccProfileRef: input.iccProfileRef ?? current.iccProfileRef,
+          sha256: input.sha256 ?? current.sha256
         }
       })
     );
@@ -1366,6 +1555,194 @@ export class DatabaseRuntimeStore {
       });
     }
     return true;
+  }
+
+  async listAssetVariants() {
+    await this.ensureSeeded();
+    return (await this.prisma.assetVariant.findMany({ orderBy: { createdAt: "desc" } })).map(mapAssetVariant);
+  }
+
+  async getAssetVariant(id: string) {
+    await this.ensureSeeded();
+    const record = await this.prisma.assetVariant.findUnique({ where: { id } });
+    return record ? mapAssetVariant(record) : null;
+  }
+
+  async createAssetVariant(input: {
+    assetId: string;
+    variantKind: AssetVariantRecord["variantKind"];
+    objectKey: string;
+    mimeType: string;
+    widthPx?: number | null;
+    heightPx?: number | null;
+    byteSize?: number | null;
+  }) {
+    await this.ensureSeeded();
+    const record = await this.prisma.assetVariant.create({
+      data: {
+        id: `avr_${randomUUID()}`,
+        assetId: input.assetId,
+        variantKind: input.variantKind,
+        objectKey: input.objectKey.trim(),
+        mimeType: input.mimeType.trim(),
+        widthPx: input.widthPx ?? null,
+        heightPx: input.heightPx ?? null,
+        byteSize: input.byteSize ?? null
+      }
+    });
+    return mapAssetVariant(record);
+  }
+
+  async updateAssetVariant(
+    id: string,
+    input: Partial<
+      Pick<AssetVariantRecord, "assetId" | "variantKind" | "objectKey" | "mimeType" | "widthPx" | "heightPx" | "byteSize">
+    >
+  ) {
+    await this.ensureSeeded();
+    const current = await this.prisma.assetVariant.findUnique({ where: { id } });
+    if (!current) {
+      return null;
+    }
+    const record = await this.prisma.assetVariant.update({
+      where: { id },
+      data: {
+        assetId: input.assetId ?? current.assetId,
+        variantKind: input.variantKind ?? current.variantKind,
+        objectKey: input.objectKey?.trim() ? input.objectKey.trim() : current.objectKey,
+        mimeType: input.mimeType?.trim() ? input.mimeType.trim() : current.mimeType,
+        widthPx: typeof input.widthPx === "undefined" ? current.widthPx : input.widthPx,
+        heightPx: typeof input.heightPx === "undefined" ? current.heightPx : input.heightPx,
+        byteSize: typeof input.byteSize === "undefined" ? current.byteSize : input.byteSize
+      }
+    });
+    return mapAssetVariant(record);
+  }
+
+  async deleteAssetVariant(id: string) {
+    await this.ensureSeeded();
+    const deleted = await this.prisma.assetVariant.deleteMany({ where: { id } });
+    return deleted.count > 0;
+  }
+
+  async listFontFamilies() {
+    await this.ensureSeeded();
+    return (await this.prisma.fontFamily.findMany({ orderBy: { displayName: "asc" } })).map(mapFontFamily);
+  }
+
+  async getFontFamily(id: string) {
+    await this.ensureSeeded();
+    const record = await this.prisma.fontFamily.findUnique({ where: { id } });
+    return record ? mapFontFamily(record) : null;
+  }
+
+  async createFontFamily(input: {
+    familyKey: string;
+    displayName: string;
+    source: FontFamilyRecord["source"];
+    status?: FontFamilyRecord["status"];
+  }) {
+    await this.ensureSeeded();
+    const record = await this.prisma.fontFamily.create({
+      data: {
+        id: `ffm_${randomUUID()}`,
+        familyKey: input.familyKey.trim(),
+        displayName: input.displayName.trim(),
+        source: input.source,
+        status: input.status ?? "active"
+      }
+    });
+    return mapFontFamily(record);
+  }
+
+  async updateFontFamily(
+    id: string,
+    input: Partial<Pick<FontFamilyRecord, "familyKey" | "displayName" | "source" | "status">>
+  ) {
+    await this.ensureSeeded();
+    const current = await this.prisma.fontFamily.findUnique({ where: { id } });
+    if (!current) {
+      return null;
+    }
+    const record = await this.prisma.fontFamily.update({
+      where: { id },
+      data: {
+        familyKey: input.familyKey?.trim() ? input.familyKey.trim() : current.familyKey,
+        displayName: input.displayName?.trim() ? input.displayName.trim() : current.displayName,
+        source: input.source ?? current.source,
+        status: input.status ?? current.status
+      }
+    });
+    return mapFontFamily(record);
+  }
+
+  async deleteFontFamily(id: string) {
+    await this.ensureSeeded();
+    const deleted = await this.prisma.fontFamily.deleteMany({ where: { id } });
+    return deleted.count > 0;
+  }
+
+  async listFontFiles() {
+    await this.ensureSeeded();
+    return (await this.prisma.fontFile.findMany({ orderBy: { createdAt: "desc" } })).map(mapFontFile);
+  }
+
+  async getFontFile(id: string) {
+    await this.ensureSeeded();
+    const record = await this.prisma.fontFile.findUnique({ where: { id } });
+    return record ? mapFontFile(record) : null;
+  }
+
+  async createFontFile(input: {
+    fontFamilyId: string;
+    assetId?: string | null;
+    fileKey: string;
+    format: FontFileRecord["format"];
+    weight?: string | null;
+    style?: string | null;
+  }) {
+    await this.ensureSeeded();
+    const record = await this.prisma.fontFile.create({
+      data: {
+        id: `ffi_${randomUUID()}`,
+        fontFamilyId: input.fontFamilyId,
+        assetId: input.assetId ?? null,
+        fileKey: input.fileKey.trim(),
+        format: input.format,
+        weight: input.weight?.trim() || null,
+        style: input.style?.trim() || null
+      }
+    });
+    return mapFontFile(record);
+  }
+
+  async updateFontFile(
+    id: string,
+    input: Partial<Pick<FontFileRecord, "fontFamilyId" | "assetId" | "fileKey" | "format" | "weight" | "style">>
+  ) {
+    await this.ensureSeeded();
+    const current = await this.prisma.fontFile.findUnique({ where: { id } });
+    if (!current) {
+      return null;
+    }
+    const record = await this.prisma.fontFile.update({
+      where: { id },
+      data: {
+        fontFamilyId: input.fontFamilyId ?? current.fontFamilyId,
+        assetId: typeof input.assetId === "undefined" ? current.assetId : input.assetId,
+        fileKey: input.fileKey?.trim() ? input.fileKey.trim() : current.fileKey,
+        format: input.format ?? current.format,
+        weight: typeof input.weight === "undefined" ? current.weight : input.weight?.trim() || null,
+        style: typeof input.style === "undefined" ? current.style : input.style?.trim() || null
+      }
+    });
+    return mapFontFile(record);
+  }
+
+  async deleteFontFile(id: string) {
+    await this.ensureSeeded();
+    const deleted = await this.prisma.fontFile.deleteMany({ where: { id } });
+    return deleted.count > 0;
   }
 
   async getProject(id: string) {

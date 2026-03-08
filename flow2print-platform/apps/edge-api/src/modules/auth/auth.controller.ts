@@ -24,6 +24,7 @@ import {
   ChangePasswordDto,
   UpdateProfileDto,
 } from "./dto/index.js";
+import { Public } from "../../common/decorators/public.decorator.js";
 
 @ApiTags("auth")
 @Controller("v1/auth")
@@ -31,6 +32,7 @@ export class AuthController {
   constructor(private readonly store: RuntimeStoreService) {}
 
   @Post("login")
+  @Public()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: "Login with email and password" })
   @ApiResponse({ status: 200, description: "Login successful" })
@@ -72,6 +74,7 @@ export class AuthController {
   }
 
   @Post("forgot-password")
+  @Public()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: "Request password reset" })
   async forgotPassword(@Body() body: ForgotPasswordDto) {
@@ -84,6 +87,7 @@ export class AuthController {
   }
 
   @Post("reset-password")
+  @Public()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: "Reset password with token" })
   async resetPassword(@Body() body: ResetPasswordDto) {

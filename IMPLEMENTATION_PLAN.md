@@ -1,7 +1,13 @@
 
-  # Flow2Print Masterplan
+  # 1. Flow2Print Masterplan
+  
+  ## 1. Tech-Stack:
+  
+  - Die Primärdatenbank wird PostgreSQL.
+  - Das Messaging wird RabbitMQ.
+  - Das Caching und Locking wird Redis.
 
-  ## 1. Zielbild in einem Satz
+  ## 2. Zielbild in einem Satz
 
   - Flow2Print wird ein eigenständiges, selbst hostbares Open-Source-Web2Print-System.
   - Magento 2 wird nur als Commerce- und Checkout-System angebunden.
@@ -14,21 +20,9 @@
   - Das System wird nicht als reiner PDF-Generator geplant.
   - Das System wird als Plattform für Produktkontext, Template-Regeln, Projekt-Versionen, Preflight, Outputs und Commerce-Referenzen geplant.
 
-  ## 2. Warum der vorige Plan nicht gereicht hat
-
-  - Der vorige Plan war architektonisch richtig grob geschnitten.
-  - Der vorige Plan war aber nicht tief genug auf Technologien, Seed-Analyse, Repo-Struktur, Vertragsgrenzen, Datenmodell, APIs, Rendering, Preflight, Connector-Details und Betrieb.
-  - Genau diese Lücken schließe ich hier.
-  - Dieser Plan ist absichtlich deutlich technischer.
-  - Dieser Plan ersetzt den vorigen Entwurf vollständig.
-  - Dieser Plan ist als decision-complete ausgelegt.
-  - Dieser Plan ist so formuliert, dass ein anderer Engineer oder Agent direkt mit dem Bootstrap beginnen kann.
-
   ## 3. Harte Entscheidungen, die in diesem Plan fest verdrahtet sind
 
   - Flow2Print wird als separates Produkt gebaut.
-  - Magento 2 bekommt ein separates Connector-Repo.
-  - print-designer wird nicht direkt geforkt.
   - print-designer wird als konzeptioneller Seed benutzt.
   - Graphic-and-banner-designing-app-fabricjs wird nicht als technische Basis benutzt.
   - Der Frontend-Stack wird React + TypeScript + Vite.
@@ -188,11 +182,8 @@
 
   ## 10. Produktdefinition von Flow2Print
 
-  - Flow2Print ist eine Open-Source-Web2Print-Plattform.
-  - Flow2Print ist kein Shop-System.
-  - Flow2Print ist kein Page-Builder.
-  - Flow2Print ist kein CMS.
-  - Flow2Print ist kein DAM im Vollausbau.
+  - Flow2Print ist eine Open-Source-Web2Print-Plattform
+  - Flow2Print ist kein Shop-System, Page-Builder, CMS oder DAM im Vollausbau
   - Flow2Print ist kein generischer Grafikeditor ohne Produktregeln.
   - Flow2Print nimmt einen Produktkontext entgegen.
   - Flow2Print erzwingt Template- und Designregeln.
@@ -363,36 +354,8 @@
   - Deshalb gewinnt React + Vite hier gegen Next.js.
   - Deshalb gewinnen React + Vite hier auch gegen einen direkten Vue-Fork.
 
-  ## 17. Warum PostgreSQL statt MongoDB
 
-  - print-designer benutzt MongoDB über Payload.
-  - Referenz: payload.config.ts (https://raw.githubusercontent.com/lmanukyan/print-designer/develop/src/payload.config.ts)
-  - MongoDB ist für den Seed okay.
-  - Für Flow2Print brauchen wir aber stärkere relationale Regeln.
-  - Wir brauchen Organization, Membership, Blueprint, Template, Project, ProjectVersion, OutputJob, CommerceLink.
-  - Wir brauchen eindeutige Composite Constraints.
-  - Wir brauchen JSONB zusätzlich zu relationalen Joins.
-  - Wir brauchen starke Transaktionen rund um Finalize, Export und Commerce Sync.
-  - Wir brauchen Audit- und Statusabfragen über viele Tabellen hinweg.
-  - PostgreSQL passt dafür besser.
-  - PostgreSQL bleibt trotzdem flexibel genug für schemareiche JSON-Dokumente.
-  - PostgreSQL 18 ist aktuell dokumentiert.
-  - Quelle: PostgreSQL docs (https://www.postgresql.org/docs/current/)
-
-  ## 18. Warum REST + OpenAPI statt GraphQL als Hauptvertrag
-
-  - Der externe Magento-Connector profitiert von stabilen, dokumentierten Request/Response-Schemas.
-  - Der interne Plattformkern profitiert ebenfalls davon.
-  - Jobs und Webhooks brauchen klare Versionierung.
-  - Ein Open-Source-Projekt profitiert von generierbaren SDKs.
-  - OpenAPI passt dafür sehr gut.
-  - GraphQL ist nicht verboten.
-  - GraphQL ist aber in v1 kein Primärvertrag.
-  - Der Aufwand für Schema-Evolution, Auth-Policies und Debugging würde in v1 wenig echten Nutzen bringen.
-  - Interne Aggregationen laufen über edge-api und Read-Models.
-  - Externe Integration läuft über REST.
-  - Offizielle API-Dokumentation wird als OpenAPI veröffentlicht.
-  - Clients werden daraus generiert.
+  ## 18. REST + OpenAPI statt GraphQL als Hauptvertrag
 
   ## 19. Repositorien und Ownership
 

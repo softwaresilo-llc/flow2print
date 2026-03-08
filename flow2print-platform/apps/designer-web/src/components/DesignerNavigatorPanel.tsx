@@ -18,11 +18,8 @@ export const DesignerNavigatorPanel = ({
   sessionContent
 }: DesignerNavigatorPanelProps) => (
   <article className="panel panel--tight panel--navigator">
-    <div className="section-heading section-heading--compact">
-      <div>
-        <h3>Document</h3>
-        <p>Pages, layers, assets, and session actions.</p>
-      </div>
+    <div className="navigator-topbar">
+      <strong>Workspace</strong>
       <span className="badge badge--neutral">{summary}</span>
     </div>
     <div className="panel-tabs panel-tabs--navigator">
@@ -45,7 +42,7 @@ export const DesignerNavigatorPanel = ({
         className={`panel-tab ${leftPanel === "session" ? "panel-tab--active" : ""}`}
         onClick={() => onPanelChange("session")}
       >
-        Session
+        History
       </button>
     </div>
     {leftPanel === "layers" ? layersContent : null}

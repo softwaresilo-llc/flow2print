@@ -6,32 +6,20 @@ interface FinishArtifact {
 
 interface DesignerFinishPanelProps {
   artifacts: FinishArtifact[];
-  syncingCommerce: boolean;
-  commerceStatusClassName: string;
-  commerceStatusLabel: string;
   quoteRef: string;
   orderRef: string;
-  sessionLabel: string;
-  onLinkQuote: () => void;
-  onLinkOrder: () => void;
 }
 
 export const DesignerFinishPanel = ({
   artifacts,
-  syncingCommerce,
-  commerceStatusClassName,
-  commerceStatusLabel,
   quoteRef,
-  orderRef,
-  sessionLabel,
-  onLinkQuote,
-  onLinkOrder
+  orderRef
 }: DesignerFinishPanelProps) => (
   <>
     <div className="section-heading">
       <div>
         <h3>Files</h3>
-        <p>Generated after you create print files.</p>
+        <p>Open the latest generated files.</p>
       </div>
       <span className="badge badge--neutral">{artifacts.length}</span>
     </div>
@@ -46,37 +34,25 @@ export const DesignerFinishPanel = ({
         </div>
       ))}
     </div>
-    <div className="section-heading">
-      <div>
-        <h3>External references</h3>
-        <p>Optional links for the next system step.</p>
-      </div>
-    </div>
-    <div className="stack-actions stack-actions--secondary">
-      <button type="button" className="button--ghost" onClick={onLinkQuote} disabled={syncingCommerce}>
-        {syncingCommerce ? "Syncing..." : "Link quote"}
-      </button>
-      <button type="button" className="button--ghost" onClick={onLinkOrder} disabled={syncingCommerce}>
-        {syncingCommerce ? "Syncing..." : "Link order"}
-      </button>
-    </div>
-    <div className="kv-list">
-      <div className="kv-item">
-        <strong>Status</strong>
-        <span className={commerceStatusClassName}>{commerceStatusLabel}</span>
-      </div>
-      <div className="kv-item">
-        <strong>Quote ref</strong>
-        <span>{quoteRef}</span>
-      </div>
-      <div className="kv-item">
-        <strong>Order ref</strong>
-        <span>{orderRef}</span>
-      </div>
-      <div className="kv-item">
-        <strong>Session</strong>
-        <span>{sessionLabel}</span>
-      </div>
-    </div>
+    {quoteRef !== "n/a" || orderRef !== "n/a" ? (
+      <>
+        <div className="section-heading">
+          <div>
+            <h3>Linked records</h3>
+            <p>References already attached to this project.</p>
+          </div>
+        </div>
+        <div className="kv-list">
+          <div className="kv-item">
+            <strong>Quote ref</strong>
+            <span>{quoteRef}</span>
+          </div>
+          <div className="kv-item">
+            <strong>Order ref</strong>
+            <span>{orderRef}</span>
+          </div>
+        </div>
+      </>
+    ) : null}
   </>
 );

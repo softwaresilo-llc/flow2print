@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsLocale, IsTimeZone } from "class-validator";
+import { IsString, IsOptional, IsLocale, IsTimeZone, IsEmail, IsInt, Min } from "class-validator";
 
 export class UpdateSettingsDto {
   @IsOptional()
@@ -14,16 +14,28 @@ export class UpdateSettingsDto {
   companyAddress?: string;
 
   @IsOptional()
-  @IsString()
+  @IsEmail()
   supportEmail?: string;
+
+  @IsOptional()
+  @IsEmail()
+  salesEmail?: string;
+
+  @IsOptional()
+  @IsString()
+  supportPhone?: string;
 
   @IsOptional()
   @IsString()
   mailFromName?: string;
 
   @IsOptional()
-  @IsString()
+  @IsEmail()
   mailFromAddress?: string;
+
+  @IsOptional()
+  @IsEmail()
+  replyToEmail?: string;
 
   @IsOptional()
   @IsString()
@@ -32,6 +44,14 @@ export class UpdateSettingsDto {
   @IsOptional()
   @IsString()
   logoText?: string;
+
+  @IsOptional()
+  @IsString()
+  logoUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  logoAssetId?: string | null;
 
   @IsOptional()
   @IsString()
@@ -50,10 +70,38 @@ export class UpdateSettingsDto {
   commerceBaseUrl?: string;
 
   @IsOptional()
+  @IsString()
+  publicApiUrl?: string;
+
+  @IsOptional()
   @IsLocale()
   defaultLocale?: string;
 
   @IsOptional()
   @IsTimeZone()
   defaultTimezone?: string;
+
+  @IsOptional()
+  @IsString()
+  defaultCurrency?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  sessionTtlHours?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  passwordResetTtlMinutes?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  maxUploadMb?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1000)
+  maxImageEdgePx?: number;
 }

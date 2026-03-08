@@ -31,12 +31,7 @@ export const DesignerReviewPanel = ({
   <>
     <div className={`review-summary ${hasBlockingIssues ? "review-summary--warning" : "review-summary--pass"}`}>
       <div>
-        <strong>{hasBlockingIssues ? "This side still needs attention." : "This side is ready for print files."}</strong>
-        <p>
-          {hasBlockingIssues
-            ? "Resolve the blocking items below. You can jump back to editing at any time."
-            : "Only warnings or informational notes remain on this side."}
-        </p>
+        <strong>{hasBlockingIssues ? "Fix the blocking issues on this side." : "This side is ready."}</strong>
       </div>
       {isEditableProject ? (
         <div className="stack-actions">
@@ -54,7 +49,7 @@ export const DesignerReviewPanel = ({
     <div className="section-heading">
       <div>
         <h3>Live checks</h3>
-        <p>Quick layout hints before you create print files.</p>
+        <p>Layout issues from the current draft.</p>
       </div>
       <span className="badge badge--neutral">{liveChecks.length}</span>
     </div>
@@ -70,7 +65,7 @@ export const DesignerReviewPanel = ({
     <div className="section-heading">
       <div>
         <h3>Preflight</h3>
-        <p>Latest print-file validation.</p>
+        <p>Checks from the latest file run.</p>
       </div>
       <span className={preflightStatusClassName}>{preflightStatusLabel}</span>
     </div>

@@ -32,12 +32,7 @@ export const DesignerEditPanel = ({
     return (
       <div className="inspector-empty">
         <h4>Nothing selected</h4>
-        <p>Select an item on the canvas to edit its content and placement here.</p>
-        <div className="inspector-empty__steps">
-          <span>Add content from the Insert toolbar.</span>
-          <span>Select it on the canvas.</span>
-          <span>Adjust content, size, and appearance here.</span>
-        </div>
+        <p>Select an item on the canvas.</p>
       </div>
     );
   }
@@ -58,13 +53,12 @@ export const DesignerEditPanel = ({
         <div className="workspace-alert workspace-alert--subtle">
           <div>
             <strong>Read-only preview.</strong>
-            <p>This version is locked because print files already exist. Open another project to keep editing.</p>
+            <p>This version is locked because files already exist.</p>
           </div>
         </div>
         <div className="inspector-section">
           <div className="inspector-section__header">
             <h4>Content</h4>
-            <p>What this item contains.</p>
           </div>
           <div className="kv-list">
             <div className="kv-item">
@@ -94,7 +88,6 @@ export const DesignerEditPanel = ({
         <div className="inspector-section">
           <div className="inspector-section__header">
             <h4>Placement</h4>
-            <p>Measured in millimeters.</p>
           </div>
           <div className="kv-list">
             <div className="kv-item">
@@ -136,8 +129,6 @@ export const DesignerEditPanel = ({
         </div>
         <div className="badge-row">
           <span className="badge badge--neutral">{selectedLayer.type}</span>
-          <span className="badge badge--neutral">{selectedLayer.visible ? "visible" : "hidden"}</span>
-          <span className="badge badge--neutral">{selectedLayer.locked ? "locked" : "editable"}</span>
           <button
             type="button"
             className="button--ghost inspector-summary__menu"
@@ -162,7 +153,6 @@ export const DesignerEditPanel = ({
       <div className="inspector-section">
         <div className="inspector-section__header">
           <h4>Content</h4>
-          <p>What this item shows.</p>
         </div>
         <label>
           <span>Name</span>
@@ -445,7 +435,6 @@ export const DesignerEditPanel = ({
       <div className="inspector-section">
         <div className="inspector-section__header">
           <h4>Size and position</h4>
-          <p>Measured in millimeters.</p>
         </div>
         <div className="inspector-grid">
           <label>
@@ -469,7 +458,6 @@ export const DesignerEditPanel = ({
       <div className="inspector-section">
         <div className="inspector-section__header">
           <h4>Appearance</h4>
-          <p>Visibility and transparency.</p>
         </div>
         <div className="inspector-grid">
           <label>

@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { execFileSync, spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
 import test from "node:test";
-import { spawn } from "node:child_process";
 
 const waitForHealthy = async (baseUrl: string) => {
   for (let attempt = 0; attempt < 40; attempt += 1) {
@@ -23,16 +23,38 @@ const waitForHealthy = async (baseUrl: string) => {
 };
 
 test("edge-api serves finalize flow, commerce status, and artifact downloads", async () => {
-  const tempDir = await mkdtemp(join(tmpdir(), "flow2print-edge-"));
+  const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+  const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
+  const schema = `edge_${randomUUID().replace(/-/g, "")}`;
+  const baseDatabaseUrl =
+    process.env.DATABASE_URL ??
+    process.env.FLOW2PRINT_POSTGRES_URL ??
+    "postgresql://flow2print:flow2print@127.0.0.1:55433/flow2print";
+  const databaseUrl = `${baseDatabaseUrl}${baseDatabaseUrl.includes("?") ? "&" : "?"}schema=${schema}`;
+  const dataDir = resolve(repoRoot, `.flow2print-runtime-test-${schema}`);
   const port = "3020";
   const baseUrl = `http://127.0.0.1:${port}`;
-  const server = spawn("node", ["dist/main.js"], {
-    cwd: process.cwd(),
+
+  execFileSync("psql", [baseDatabaseUrl, "-c", `CREATE SCHEMA IF NOT EXISTS "${schema}"`], {
+    cwd: repoRoot,
+    stdio: "ignore"
+  });
+  execFileSync("pnpm", ["--filter", "@flow2print/database", "db:migrate:deploy"], {
+    cwd: repoRoot,
+    env: {
+      ...process.env,
+      DATABASE_URL: databaseUrl
+    },
+    stdio: "ignore"
+  });
+
+  const server = spawn("node", ["dist/main.nest.js"], {
+    cwd: packageRoot,
     env: {
       ...process.env,
       PORT: port,
-      FLOW2PRINT_STATE_FILE: join(tempDir, "state.json"),
-      FLOW2PRINT_DATA_DIR: join(tempDir, "runtime")
+      DATABASE_URL: databaseUrl,
+      FLOW2PRINT_DATA_DIR: dataDir
     },
     stdio: "ignore"
   });
@@ -190,6 +212,9 @@ test("edge-api serves finalize flow, commerce status, and artifact downloads", a
     assert.ok((await productionResponse.arrayBuffer()).byteLength > 0);
   } finally {
     server.kill("SIGTERM");
-    await rm(tempDir, { recursive: true, force: true });
+    execFileSync("psql", [baseDatabaseUrl, "-c", `DROP SCHEMA IF EXISTS "${schema}" CASCADE`], {
+      cwd: repoRoot,
+      stdio: "ignore"
+    });
   }
 });

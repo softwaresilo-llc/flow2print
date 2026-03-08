@@ -203,12 +203,15 @@ const readJson = async <T,>(response: Response) => {
     const body = await response.text();
     try {
       const parsed = JSON.parse(body) as { code?: string; message?: string };
-      const error = new Error(parsed.message ?? parsed.code ?? `Request failed with status ${response.status}`);
+      const requestError = new Error(parsed.message ?? parsed.code ?? `Request failed with status ${response.status}`);
       if (parsed.code) {
-        error.name = parsed.code;
+        requestError.name = parsed.code;
       }
-      throw error;
-    } catch {
+      throw requestError;
+    } catch (parseError) {
+      if (parseError instanceof Error && parseError.name !== "SyntaxError") {
+        throw parseError;
+      }
       throw new Error(body || `Request failed with status ${response.status}`);
     }
   }
@@ -225,6 +228,9 @@ const friendlyLoadError = (error: unknown) => {
     }
     if (error.message.includes("Failed to fetch")) {
       return "Flow2Print could not reach the local API. Make sure the local services are running, then try again.";
+    }
+    if (error.message.includes("JSON.parse") || error.message.includes("Unexpected token")) {
+      return "Flow2Print received an unexpected response while opening this project. Try refreshing or opening another project.";
     }
     return error.message;
   }
@@ -334,25 +340,27 @@ export const DesignerApp = () => {
 
         const projectId = session?.projectId ?? (effectiveRoute.mode === "project" ? effectiveRoute.value : "");
         if (!projectId) {
-          await loadTemplates(blueprintForProductRef(selectedStarterProductRef));
-          await loadRecentProjects();
+          await Promise.allSettled([
+            loadTemplates(blueprintForProductRef(selectedStarterProductRef)),
+            loadRecentProjects()
+          ]);
           setProject(null);
           setDraftDocument(null);
           setLaunchSession(null);
           return;
         }
 
-        const [projectData, assetData] = await Promise.all([
-          fetch(resolveApiUrl(`/v1/projects/${projectId}`)).then((response) => readJson<ProjectResponse>(response)),
-          fetch(resolveApiUrl("/v1/assets")).then((response) => readJson<{ docs: AssetRecord[] }>(response))
-        ]);
+        const projectData = await fetch(resolveApiUrl(`/v1/projects/${projectId}`)).then((response) =>
+          readJson<ProjectResponse>(response)
+        );
+        const assetData = await fetch(resolveApiUrl("/v1/assets")).then((response) =>
+          readJson<{ docs: AssetRecord[] }>(response)
+        );
 
-        await loadTemplates(projectData.blueprintId);
         setLaunchSession(session);
         setProject(projectData);
         setDraftDocument(deepCloneDocument(projectData.document));
         setAssets(assetData.docs);
-        await loadRecentProjects();
         setSelectedSurfaceIndex(0);
         setZoom(1);
         setLeftPanel("layers");
@@ -360,6 +368,7 @@ export const DesignerApp = () => {
         setSelectedLayerIds(projectData.document.surfaces[0]?.layers[0]?.id ? [projectData.document.surfaces[0].layers[0].id] : []);
         setSelectedTemplateId(projectData.templateId);
         setRightPanel(projectData.status === "finalized" || projectData.status === "ordered" ? "finish" : "edit");
+        void Promise.allSettled([loadTemplates(projectData.blueprintId), loadRecentProjects()]);
       } catch (loadError) {
         if (
           effectiveRoute.mode === "launch" &&
@@ -404,11 +413,12 @@ export const DesignerApp = () => {
   }, [effectiveRoute.mode, effectiveRoute.value, selectedStarterProductRef]);
 
   const reloadProject = async (projectId: string) => {
-    const [projectData, assetData] = await Promise.all([
-      fetch(resolveApiUrl(`/v1/projects/${projectId}`)).then((response) => readJson<ProjectResponse>(response)),
-      fetch(resolveApiUrl("/v1/assets")).then((response) => readJson<{ docs: AssetRecord[] }>(response))
-    ]);
-    await loadTemplates(projectData.blueprintId);
+    const projectData = await fetch(resolveApiUrl(`/v1/projects/${projectId}`)).then((response) =>
+      readJson<ProjectResponse>(response)
+    );
+    const assetData = await fetch(resolveApiUrl("/v1/assets")).then((response) =>
+      readJson<{ docs: AssetRecord[] }>(response)
+    );
     setProject(projectData);
     setDraftDocument(deepCloneDocument(projectData.document));
     setAssets(assetData.docs);
@@ -423,7 +433,7 @@ export const DesignerApp = () => {
           ? [projectData.document.surfaces[0].layers[0].id]
           : []
     );
-    await loadRecentProjects();
+    void Promise.allSettled([loadTemplates(projectData.blueprintId), loadRecentProjects()]);
   };
 
   const currentSurface = draftDocument?.surfaces[selectedSurfaceIndex] ?? null;
@@ -1763,7 +1773,7 @@ export const DesignerApp = () => {
             <div className="surface-list">
               <div className="surface-actions">
                 <label className="surface-label-editor">
-                  <span>Current side</span>
+                  <span>Side name</span>
                   <input
                     value={currentSurface.label}
                     onChange={(event) => renameCurrentSurface(event.target.value)}
@@ -1775,17 +1785,16 @@ export const DesignerApp = () => {
                     <button type="button" className="button--ghost" onClick={addSurface}>
                       Add side
                     </button>
-                    <button type="button" className="button--ghost" onClick={duplicateCurrentSurface}>
-                      Duplicate
-                    </button>
-                    <button
-                      type="button"
-                      className="button--ghost"
-                      onClick={removeCurrentSurface}
-                      disabled={draftDocument.surfaces.length <= 1}
-                    >
-                      Remove
-                    </button>
+                    {draftDocument.surfaces.length > 1 ? (
+                      <>
+                        <button type="button" className="button--ghost" onClick={duplicateCurrentSurface}>
+                          Duplicate
+                        </button>
+                        <button type="button" className="button--ghost" onClick={removeCurrentSurface}>
+                          Remove
+                        </button>
+                      </>
+                    ) : null}
                   </div>
                 ) : null}
               </div>
@@ -1810,14 +1819,9 @@ export const DesignerApp = () => {
             <div className="list-section-header">
               <div>
                 <strong>Layers</strong>
-                <span>Drag to change stacking order.</span>
+                <span>{currentSurface.layers.length} on this side</span>
               </div>
             </div>
-            <p className="panel-hint">
-              {isEditableProject
-                ? "Open actions on a layer to hide, lock, rename, or delete it."
-                : "This version is read-only because print files already exist."}
-            </p>
             <div className="layer-list">
               {currentSurface.layers.length === 0 ? <div className="empty-state">No items on this side yet.</div> : null}
               {currentSurface.layers.map((layer, index) => (
@@ -1913,8 +1917,8 @@ export const DesignerApp = () => {
           <>
             <div className="list-section-header">
               <div>
-                <strong>Library</strong>
-                <span>All available images for this workspace.</span>
+                <strong>Assets</strong>
+                <span>Reusable images for this project.</span>
               </div>
             </div>
             <div className="asset-list">
@@ -1979,12 +1983,12 @@ export const DesignerApp = () => {
                 </button>
               )}
             </div>
-            <div className="list-section-header">
-              <div>
-                <strong>Recent changes</strong>
-                <span>The latest actions in this editing session.</span>
+              <div className="list-section-header">
+                <div>
+                  <strong>Recent changes</strong>
+                  <span>Latest edits in this browser session.</span>
+                </div>
               </div>
-            </div>
             <div className="history-list">
               {recentHistoryEntries.length === 0 ? (
                 <div className="empty-state">No local changes yet. Start with text, an image, or a template.</div>
@@ -2000,14 +2004,14 @@ export const DesignerApp = () => {
               ))}
             </div>
             {isEditableProject ? (
-              <div className="layout-guide-card">
-                <div className="kv-list">
-                  <div className="kv-item">
-                    <strong>Shortcuts</strong>
-                    <span>Cmd/Ctrl+S save, Cmd/Ctrl+Z undo, Delete removes, arrows nudge.</span>
+                <div className="layout-guide-card">
+                  <div className="kv-list">
+                    <div className="kv-item">
+                      <strong>Shortcuts</strong>
+                      <span>Save, undo, delete, arrows.</span>
+                    </div>
                   </div>
                 </div>
-              </div>
             ) : null}
           </>
         }
@@ -2027,12 +2031,8 @@ export const DesignerApp = () => {
           badges={
             <>
               <span className={badgeTone(project.status)}>{humanizeStatus(project.status)}</span>
-              <span className={badgeTone(project.preflightReport?.status ?? null)}>
-                {project.preflightReport?.status ?? "preflight pending"}
-              </span>
-              <span className="badge badge--neutral">{project.externalProductRef}</span>
               {hasUnsavedChanges ? <span className="badge badge--warning">unsaved changes</span> : null}
-              {hasBlockingIssues ? <span className="badge badge--danger">review required</span> : null}
+              {hasBlockingIssues && !isBlankSurface ? <span className="badge badge--danger">review required</span> : null}
             </>
           }
           mode={rightPanel}
@@ -2052,7 +2052,7 @@ export const DesignerApp = () => {
               {isEditableProject && rightPanel === "review" ? (
                 <>
                   <button type="button" className="button--ghost" onClick={() => setRightPanel("edit")}>
-                    Back to edit
+                    Edit
                   </button>
                   <button type="button" onClick={() => void finalizeProject()} disabled={finalizing || hasBlockingIssues}>
                     {finalizing ? "Creating..." : "Create print files"}
@@ -2079,29 +2079,18 @@ export const DesignerApp = () => {
           <section className="workspace-stage workspace-stage--primary">
             <div className="stage-header stage-header--editor">
               <div>
-                <p className="workspace-label">Canvas</p>
                 <h2>{currentSurface.label}</h2>
-                <p className="stage-subtitle">
-                  {rightPanel === "edit"
-                    ? selectedLayer
-                      ? `Editing ${selectedLayer.name}`
-                      : "Add content or select an item on the canvas."
-                    : rightPanel === "review"
-                      ? "Check layout warnings and print readiness for this side."
-                      : "Use generated files or hand the design off to the next step."}
-                </p>
               </div>
               <div className="badge-row">
-                <span className="badge badge--neutral">{currentSurface.layers.length} layers</span>
-                <span className="badge badge--neutral">{documentSummary.assetCount} linked assets</span>
-                <span className="badge badge--neutral">{currentTemplate?.displayName ?? "Blank start"}</span>
+                <span className="badge badge--neutral">{currentSurface.layers.length} items</span>
+                {currentTemplate?.displayName ? <span className="badge badge--neutral">{currentTemplate.displayName}</span> : null}
               </div>
             </div>
-            {hasBlockingIssues && rightPanel !== "review" ? (
+            {hasBlockingIssues && !isBlankSurface && rightPanel !== "review" ? (
               <div className="workspace-alert workspace-alert--warning">
                 <div>
-                  <strong>Review needed before print files can be created.</strong>
-                  <p>Fix the blocking items in Review, or add content directly on the canvas if this side is still empty.</p>
+                  <strong>Review required</strong>
+                  <p>Fix blocking issues before files can be created.</p>
                 </div>
                 <button type="button" className="button--ghost" onClick={() => setRightPanel("review")}>
                   Open review
@@ -2113,19 +2102,9 @@ export const DesignerApp = () => {
               {rightPanel === "edit" && !isBlankSurface ? (
                 <div className="stage-toolbar">
                   <div className="stage-toolbar__group">
-                    <span className="stage-toolbar__label">Insert</span>
                     <div className="stack-actions">
                       <button type="button" onClick={addTextLayer} disabled={project.status === "finalized"}>
                         Text
-                      </button>
-                      <button type="button" className="button--ghost" onClick={addShapeLayer} disabled={project.status === "finalized"}>
-                        Shape
-                      </button>
-                      <button type="button" className="button--ghost" onClick={addQrLayer} disabled={project.status === "finalized"}>
-                        QR code
-                      </button>
-                      <button type="button" className="button--ghost" onClick={addBarcodeLayer} disabled={project.status === "finalized"}>
-                        Barcode
                       </button>
                       <button
                         type="button"
@@ -2135,28 +2114,13 @@ export const DesignerApp = () => {
                       >
                         {saving ? "Uploading..." : "Upload image"}
                       </button>
-                      <button
-                        type="button"
-                        className="button--ghost"
-                        onClick={() => void createDemoAsset()}
-                        disabled={project.status === "finalized" || saving}
-                      >
-                        Sample image
-                      </button>
-                      <button
-                        type="button"
-                        className="button--ghost"
-                        onClick={() => setOverlay("templates")}
-                        disabled={templateBusy}
-                      >
-                        {templateBusy ? "Changing..." : "Template"}
+                      <button type="button" className="button--ghost" onClick={addShapeLayer} disabled={project.status === "finalized"}>
+                        Shape
                       </button>
                     </div>
                   </div>
                   <div className="stage-toolbar__group">
-                    <span className="stage-toolbar__label">View</span>
                     <div className="stack-actions">
-                      <span className="badge badge--neutral">Zoom {Math.round(zoom * 100)}%</span>
                       <button type="button" className="button--ghost" onClick={() => setZoom((value) => clamp(value - 0.1, 0.5, 2))}>
                         -
                       </button>
@@ -2166,11 +2130,9 @@ export const DesignerApp = () => {
                       <button type="button" className="button--ghost" onClick={() => setZoom((value) => clamp(value + 0.1, 0.5, 2))}>
                         +
                       </button>
+                      <span className="badge badge--neutral">Zoom {Math.round(zoom * 100)}%</span>
                       <button type="button" className={`button--ghost ${gridEnabled ? "toggle-active" : ""}`} onClick={() => setGridEnabled((value) => !value)}>
                         Grid
-                      </button>
-                      <button type="button" className={`button--ghost ${guidesVisible ? "toggle-active" : ""}`} onClick={() => setGuidesVisible((value) => !value)}>
-                        Guides
                       </button>
                       <button type="button" className={`button--ghost ${snapEnabled ? "toggle-active" : ""}`} onClick={() => setSnapEnabled((value) => !value)}>
                         Snap
@@ -2185,69 +2147,10 @@ export const DesignerApp = () => {
                   </div>
                 </div>
               ) : null}
-              {rightPanel === "edit" && isBlankSurface ? (
-                <div className="canvas-startbar">
-                  <div className="canvas-startbar__copy">
-                    <strong>Start designing</strong>
-                    <span>Choose one starting action. You can add more content after the first item is on the canvas.</span>
-                  </div>
-                  <div className="stack-actions">
-                    <button type="button" onClick={addTextLayer} disabled={project.status === "finalized"}>
-                      Add text
-                    </button>
-                    <button
-                      type="button"
-                      className="button--ghost"
-                      onClick={() => openFilePicker("insert")}
-                      disabled={project.status === "finalized" || saving}
-                    >
-                      {saving ? "Uploading..." : "Upload image"}
-                    </button>
-                    <button
-                      type="button"
-                      className="button--ghost"
-                      onClick={() => setOverlay("templates")}
-                      disabled={templateBusy}
-                    >
-                      {templateBusy ? "Changing..." : "Use template"}
-                    </button>
-                  </div>
+              {rightPanel === "edit" && selectedLayerLayoutStatus && selectedLayerLayoutStatus.tone !== "badge badge--success" ? (
+                <div className="layout-status-row">
+                  <span className={selectedLayerLayoutStatus.tone}>{selectedLayerLayoutStatus.text}</span>
                 </div>
-              ) : null}
-              {rightPanel !== "edit" ? (
-                <div className="readonly-strip">
-                  <strong>{rightPanel === "review" ? "Review mode" : "Finish mode"}</strong>
-                  <span>
-                    {rightPanel === "review"
-                      ? "Resolve issues and confirm this side is ready."
-                      : "Open generated files or sync this project back to the shop."}
-                  </span>
-                </div>
-              ) : null}
-              {rightPanel === "edit" ? (
-              <div className="layout-guide-bar">
-                <div className="layout-guide-bar__intro">
-                  <strong>Print guides</strong>
-                  <span>Keep important content inside the safe area. Backgrounds may extend into bleed.</span>
-                </div>
-                <div className="layout-guide-bar__items">
-                  <span className="layout-guide-pill">
-                    <span className="layout-guide-swatch layout-guide-swatch--sheet" />
-                    Final size
-                  </span>
-                  <span className="layout-guide-pill">
-                    <span className="layout-guide-swatch layout-guide-swatch--safe" />
-                    Safe area
-                  </span>
-                  <span className="layout-guide-pill">
-                    <span className="layout-guide-swatch layout-guide-swatch--bleed" />
-                    Bleed
-                  </span>
-                  <span className={selectedLayerLayoutStatus?.tone ?? "badge badge--neutral"}>
-                    {selectedLayerLayoutStatus?.text ?? "Select an item to check placement."}
-                  </span>
-                </div>
-              </div>
               ) : null}
               {isEditableProject && rightPanel === "edit" && (selectedLayer || multiSelectionActive) ? (
                 <div className={`selection-toolbar ${cropMode ? "selection-toolbar--crop" : ""}`}>
@@ -2308,18 +2211,6 @@ export const DesignerApp = () => {
                         <button type="button" className="button--ghost" onClick={() => toggleSelectedLayerFlag("locked")}>
                           {selectedLayer.locked ? "Unlock" : "Lock"}
                         </button>
-                        <button type="button" className="button--ghost" onClick={() => moveSelectedLayer("forward")}>
-                          Bring forward
-                        </button>
-                        <button type="button" className="button--ghost" onClick={() => moveSelectedLayer("backward")}>
-                          Send backward
-                        </button>
-                        <button type="button" className="button--ghost" onClick={() => alignSelectedLayer("center")}>
-                          Center X
-                        </button>
-                        <button type="button" className="button--ghost" onClick={() => alignSelectedLayer("middle")}>
-                          Center Y
-                        </button>
                         {selectedLayer.type === "image" ? (
                           <button type="button" className="button--ghost" onClick={() => setCropMode(true)}>
                             Crop image
@@ -2330,6 +2221,17 @@ export const DesignerApp = () => {
                             Ungroup
                           </button>
                         ) : null}
+                        <button
+                          type="button"
+                          className="button--ghost"
+                          onPointerDown={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            openLayerContextMenuFromElement(event.currentTarget, selectedLayer.id);
+                          }}
+                        >
+                          More actions
+                        </button>
                       </>
                     ) : null}
                     {!cropMode && multiSelectionActive ? (
@@ -2342,12 +2244,6 @@ export const DesignerApp = () => {
                         </button>
                         <button type="button" className="button--ghost" onClick={() => distributeSelectedLayers("vertical")} disabled={!canDistributeSelection}>
                           Distribute V
-                        </button>
-                        <button type="button" className="button--ghost" onClick={() => moveSelectedLayer("forward")}>
-                          Bring forward
-                        </button>
-                        <button type="button" className="button--ghost" onClick={() => moveSelectedLayer("backward")}>
-                          Send backward
                         </button>
                       </>
                     ) : null}
@@ -2363,7 +2259,7 @@ export const DesignerApp = () => {
                 <div className="crop-mode-banner">
                   <div>
                     <strong>Crop mode</strong>
-                    <p>Use the crop controls above to reposition the image inside its print frame.</p>
+                    <p>Move the image inside its frame, then confirm.</p>
                   </div>
                   <button type="button" className="button--ghost" onClick={() => setCropMode(false)}>
                     Exit crop mode
@@ -2385,9 +2281,30 @@ export const DesignerApp = () => {
                   {currentSurface.layers.length === 0 ? (
                     <div className="artboard__empty">
                       <strong>Start this side</strong>
-                      <p>Add text, a shape, a QR code, a barcode, or an image. The blue dashed box is the safe area for important content.</p>
-                </div>
-              ) : null}
+                      <p>Add the first item for this side.</p>
+                      <div className="artboard__empty-actions">
+                        <button type="button" onClick={addTextLayer} disabled={project.status === "finalized"}>
+                          Add text
+                        </button>
+                        <button
+                          type="button"
+                          className="button--ghost"
+                          onClick={() => openFilePicker("insert")}
+                          disabled={project.status === "finalized" || saving}
+                        >
+                          {saving ? "Uploading..." : "Upload image"}
+                        </button>
+                        <button
+                          type="button"
+                          className="button--ghost"
+                          onClick={() => setOverlay("templates")}
+                          disabled={templateBusy}
+                        >
+                          {templateBusy ? "Changing..." : "Use template"}
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
                   <FabricCanvasStage
                     ref={stageRef}
                     surface={currentSurface}
@@ -2434,13 +2351,13 @@ export const DesignerApp = () => {
 
           <aside className="workspace-sidebar workspace-sidebar--inspector">
             <DesignerInspectorPanel
-              title={rightPanel === "edit" ? "Properties" : rightPanel === "review" ? "Review" : "Files"}
+              title={rightPanel === "edit" ? "Selection" : rightPanel === "review" ? "Review" : "Files"}
               description={
                 rightPanel === "edit"
-                  ? "Edit the selected item or inspect its placement."
+                  ? undefined
                   : rightPanel === "review"
-                    ? "Resolve issues and confirm print readiness."
-                    : "Open generated files or send this project to the next step."
+                    ? "Fix issues before creating files."
+                    : "Open the latest generated files."
               }
             >
               {rightPanel === "edit" ? (
@@ -2476,14 +2393,8 @@ export const DesignerApp = () => {
                     label: humanizeStatus(artifact.artifactType),
                     href: resolveApiUrl(artifact.href)
                   }))}
-                  syncingCommerce={syncingCommerce}
-                  commerceStatusClassName={badgeTone(project.commerceLink?.state ?? null)}
-                  commerceStatusLabel={project.commerceLink ? humanizeStatus(project.commerceLink.state) : "not linked"}
                   quoteRef={project.commerceLink?.externalQuoteRef ?? "n/a"}
                   orderRef={project.commerceLink?.externalOrderRef ?? "n/a"}
-                  sessionLabel={launchSession ? launchSession.customerEmail : "direct load"}
-                  onLinkQuote={() => void linkCommerce("quote")}
-                  onLinkOrder={() => void linkCommerce("order")}
                 />
               ) : null}
             </DesignerInspectorPanel>
@@ -2518,12 +2429,12 @@ export const DesignerApp = () => {
         }
         description={
           overlay === "templates"
-            ? "Templates replace the current draft layout with a new starting structure."
+            ? "Choose a starting layout for this product."
             : overlay === "projects"
-              ? "Jump to another saved project without leaving the designer shell."
+              ? "Open another saved project."
               : overlay === "navigator"
-                ? "Pages, layers, assets, and session actions."
-              : "Session actions live here so the canvas can stay focused on design work."
+                ? "Pages, layers, assets, and history."
+              : "Project tools that are not part of the main design flow."
         }
         onClose={() => setOverlay(null)}
       >
@@ -2585,8 +2496,49 @@ export const DesignerApp = () => {
             <div className="workspace-menu-grid">
               <article className="template-card">
                 <div>
+                  <h3>Insert</h3>
+                  <p>Add less common items to this side.</p>
+                </div>
+                <div className="product-actions">
+                  <button
+                    type="button"
+                    className="button--ghost"
+                    onClick={() => {
+                      addQrLayer();
+                      setOverlay(null);
+                    }}
+                    disabled={!isEditableProject}
+                  >
+                    QR code
+                  </button>
+                  <button
+                    type="button"
+                    className="button--ghost"
+                    onClick={() => {
+                      addBarcodeLayer();
+                      setOverlay(null);
+                    }}
+                    disabled={!isEditableProject}
+                  >
+                    Barcode
+                  </button>
+                  <button
+                    type="button"
+                    className="button--ghost"
+                    onClick={() => {
+                      void createDemoAsset();
+                      setOverlay(null);
+                    }}
+                    disabled={!isEditableProject || saving}
+                  >
+                    Sample image
+                  </button>
+                </div>
+              </article>
+              <article className="template-card">
+                <div>
                   <h3>Project</h3>
-                  <p>Open another project or leave this workspace.</p>
+                  <p>Open another project or close this workspace.</p>
                 </div>
                 <div className="product-actions">
                   <button type="button" className="button--ghost" onClick={() => setOverlay("projects")}>
@@ -2608,7 +2560,7 @@ export const DesignerApp = () => {
                   </button>
                   {isCompactViewport ? (
                     <button type="button" className="button--ghost" onClick={() => setOverlay("navigator")}>
-                      Open document
+                      Open workspace
                     </button>
                   ) : null}
                 </div>

@@ -1,11 +1,20 @@
 import { IsString, IsOptional, IsEnum } from "class-validator";
 import type { EmailTemplateKind } from "@flow2print/domain";
 
+const emailTemplateKinds: EmailTemplateKind[] = [
+  "password_reset",
+  "welcome_admin",
+  "user_invite",
+  "account_created",
+  "project_finalized",
+  "approval_requested"
+];
+
 export class CreateEmailTemplateDto {
   @IsString()
   label!: string;
 
-  @IsEnum(["password_reset"])
+  @IsEnum(emailTemplateKinds)
   kind!: EmailTemplateKind;
 
   @IsString()
@@ -30,7 +39,7 @@ export class UpdateEmailTemplateDto {
   label?: string;
 
   @IsOptional()
-  @IsEnum(["password_reset"])
+  @IsEnum(emailTemplateKinds)
   kind?: EmailTemplateKind;
 
   @IsOptional()
@@ -76,16 +85,27 @@ export class PreviewEmailTemplateDto {
     companyName?: string;
     companyAddress?: string;
     supportEmail?: string;
+    salesEmail?: string;
+    supportPhone?: string;
     mailFromName?: string;
     mailFromAddress?: string;
+    replyToEmail?: string;
     primaryColor?: string;
     logoText?: string;
+    logoUrl?: string;
+    logoAssetId?: string | null;
     portalAppUrl?: string;
     designerAppUrl?: string;
     adminAppUrl?: string;
     commerceBaseUrl?: string;
+    publicApiUrl?: string;
     defaultLocale?: string;
     defaultTimezone?: string;
+    defaultCurrency?: string;
+    sessionTtlHours?: number;
+    passwordResetTtlMinutes?: number;
+    maxUploadMb?: number;
+    maxImageEdgePx?: number;
   };
 
   @IsOptional()

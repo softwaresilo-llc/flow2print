@@ -10,9 +10,17 @@ export type ApprovalState = "not_required" | "pending" | "approved" | "rejected"
 export type OutputJobType = "preflight" | "preview" | "proof_pdf" | "production_pdf";
 export type OutputJobStatus = "queued" | "running" | "succeeded" | "failed";
 export type AssetKind = "image" | "svg" | "pdf" | "font" | "technical";
+export type AssetProcessingStatus = "pending" | "processing" | "ready" | "failed";
+export type AssetVariantKind = "thumb" | "web" | "normalized" | "woff2";
 export type PreflightSeverity = "info" | "warning" | "blocking";
 export type UserRole = "admin" | "manager" | "customer";
-export type EmailTemplateKind = "password_reset";
+export type EmailTemplateKind =
+  | "password_reset"
+  | "welcome_admin"
+  | "user_invite"
+  | "account_created"
+  | "project_finalized"
+  | "approval_requested";
 export type ApiTokenScope =
   | "admin:read"
   | "admin:write"
@@ -107,16 +115,27 @@ export interface SystemSettingsRecord {
   companyName: string;
   companyAddress: string;
   supportEmail: string;
+  salesEmail: string;
+  supportPhone: string;
   mailFromName: string;
   mailFromAddress: string;
+  replyToEmail: string;
   primaryColor: string;
   logoText: string;
+  logoUrl: string;
+  logoAssetId: string | null;
   portalAppUrl: string;
   designerAppUrl: string;
   adminAppUrl: string;
   commerceBaseUrl: string;
+  publicApiUrl: string;
   defaultLocale: string;
   defaultTimezone: string;
+  defaultCurrency: string;
+  sessionTtlHours: number;
+  passwordResetTtlMinutes: number;
+  maxUploadMb: number;
+  maxImageEdgePx: number;
   updatedAt: string;
 }
 
@@ -178,10 +197,53 @@ export interface AssetRecord {
   tenantId: string;
   ownerIdentityId: string;
   kind: AssetKind;
+  status: AssetProcessingStatus;
   filename: string;
+  mimeType: string;
+  originalObjectKey: string | null;
+  normalizedObjectKey: string | null;
+  sizeBytes: number | null;
+  widthPx: number | null;
+  heightPx: number | null;
+  dpiX: number | null;
+  dpiY: number | null;
+  colorSpace: string | null;
+  iccProfileRef: string | null;
+  sha256: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+
+export interface AssetVariantRecord {
+  id: string;
+  assetId: string;
+  variantKind: AssetVariantKind;
+  objectKey: string;
   mimeType: string;
   widthPx: number | null;
   heightPx: number | null;
+  byteSize: number | null;
+  createdAt: string;
+}
+
+export interface FontFamilyRecord {
+  id: string;
+  familyKey: string;
+  displayName: string;
+  source: "upload" | "system" | "google_cache";
+  status: "active" | "disabled";
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface FontFileRecord {
+  id: string;
+  fontFamilyId: string;
+  assetId: string | null;
+  fileKey: string;
+  format: "ttf" | "otf" | "woff2";
+  weight: string | null;
+  style: string | null;
   createdAt: string;
 }
 
@@ -266,6 +328,9 @@ export interface Flow2PrintState {
   projects: ProjectRecord[];
   projectVersions: ProjectVersionRecord[];
   assets: AssetRecord[];
+  assetVariants: AssetVariantRecord[];
+  fontFamilies: FontFamilyRecord[];
+  fontFiles: FontFileRecord[];
   outputArtifacts: OutputArtifact[];
   preflightReports: PreflightReport[];
 }
@@ -338,6 +403,11 @@ export const seedTemplates = (): TemplateSummary[] => [
 
 export const seedEmailTemplates = (): EmailTemplateRecord[] => {
   const updatedAt = new Date().toISOString();
+  const wrapperHeaderHtml =
+    "<div style=\"padding:20px 24px;background:{{primaryColor}};color:#ffffff;font:700 18px/1.2 Arial,sans-serif;\">{{logoText}} · {{brandName}}</div>";
+  const wrapperFooterHtml =
+    "<div style=\"padding:18px 24px;border-top:1px solid #d8e0ea;color:#5e6b7c;font:400 13px/1.5 Arial,sans-serif;\">Need help? Contact <a href=\"mailto:{{supportEmail}}\">{{supportEmail}}</a>{%SUPPORT_PHONE%}.<br/>{{companyName}}<br/>{{companyAddress}}</div>"
+      .replace("{%SUPPORT_PHONE%}", " or call {{supportPhone}}");
   return [
     {
       id: "emt_password_reset",
@@ -347,10 +417,68 @@ export const seedEmailTemplates = (): EmailTemplateRecord[] => {
       bodyHtml:
         "<p>Hello {{recipientEmail}},</p><p>Use the following token to reset your password:</p><p style=\"font-size:18px;font-weight:700;letter-spacing:0.04em;\">{{resetToken}}</p><p>If you did not request this change, you can ignore this email.</p>",
       previewText: "Use the reset token to update the password.",
-      wrapperHeaderHtml:
-        "<div style=\"padding:20px 24px;background:#184a8c;color:#ffffff;font:700 18px/1.2 Arial,sans-serif;\">{{logoText}} · {{brandName}}</div>",
-      wrapperFooterHtml:
-        "<div style=\"padding:18px 24px;border-top:1px solid #d8e0ea;color:#5e6b7c;font:400 13px/1.5 Arial,sans-serif;\">Need help? Contact <a href=\"mailto:{{supportEmail}}\">{{supportEmail}}</a>.<br/>{{companyName}}<br/>{{companyAddress}}</div>",
+      wrapperHeaderHtml,
+      wrapperFooterHtml,
+      updatedAt
+    },
+    {
+      id: "emt_welcome_admin",
+      kind: "welcome_admin",
+      label: "Admin welcome",
+      subject: "Welcome to {{brandName}} Admin",
+      bodyHtml:
+        "<p>Hello {{recipientEmail}},</p><p>Your administrator workspace is ready. Sign in to review templates, assets, users, and system settings.</p><p><a href=\"{{adminAppUrl}}\" style=\"display:inline-block;padding:12px 18px;background:{{primaryColor}};color:#ffffff;text-decoration:none;border-radius:8px;\">Open Admin Workspace</a></p>",
+      previewText: "Your Flow2Print admin workspace is ready.",
+      wrapperHeaderHtml,
+      wrapperFooterHtml,
+      updatedAt
+    },
+    {
+      id: "emt_user_invite",
+      kind: "user_invite",
+      label: "User invite",
+      subject: "You were invited to {{brandName}}",
+      bodyHtml:
+        "<p>Hello {{recipientEmail}},</p><p>You have been invited to collaborate in {{brandName}}.</p><p>Use the password reset link or token you received to activate your access and start working on projects.</p>",
+      previewText: "You have been invited to Flow2Print.",
+      wrapperHeaderHtml,
+      wrapperFooterHtml,
+      updatedAt
+    },
+    {
+      id: "emt_account_created",
+      kind: "account_created",
+      label: "Account created",
+      subject: "Your {{brandName}} account is ready",
+      bodyHtml:
+        "<p>Hello {{recipientEmail}},</p><p>Your account has been created successfully. You can now access your projects, output files, and reorder flows.</p><p><a href=\"{{portalAppUrl}}\" style=\"display:inline-block;padding:12px 18px;background:{{primaryColor}};color:#ffffff;text-decoration:none;border-radius:8px;\">Open Customer Workspace</a></p>",
+      previewText: "Your Flow2Print account is ready.",
+      wrapperHeaderHtml,
+      wrapperFooterHtml,
+      updatedAt
+    },
+    {
+      id: "emt_project_finalized",
+      kind: "project_finalized",
+      label: "Project finalized",
+      subject: "Your {{brandName}} project is ready",
+      bodyHtml:
+        "<p>Hello {{recipientEmail}},</p><p>Your project has been finalized and the current files are ready for review or production hand-off.</p><p>You can return to the portal to inspect previews and download outputs.</p>",
+      previewText: "Your project has been finalized.",
+      wrapperHeaderHtml,
+      wrapperFooterHtml,
+      updatedAt
+    },
+    {
+      id: "emt_approval_requested",
+      kind: "approval_requested",
+      label: "Approval requested",
+      subject: "Approval required in {{brandName}}",
+      bodyHtml:
+        "<p>Hello {{recipientEmail}},</p><p>A project is waiting for your approval.</p><p>Open the workspace to review the latest proof, preflight status, and production files.</p><p><a href=\"{{portalAppUrl}}\" style=\"display:inline-block;padding:12px 18px;background:{{primaryColor}};color:#ffffff;text-decoration:none;border-radius:8px;\">Review project</a></p>",
+      previewText: "A project is waiting for your approval.",
+      wrapperHeaderHtml,
+      wrapperFooterHtml,
       updatedAt
     }
   ];
@@ -394,16 +522,27 @@ export const seedSystemSettings = (): SystemSettingsRecord => {
     companyName: "Flow2Print",
     companyAddress: "Example Street 12\n10115 Berlin\nGermany",
     supportEmail: "support@flow2print.local",
+    salesEmail: "sales@flow2print.local",
+    supportPhone: "+49 30 1234567",
     mailFromName: "Flow2Print Support",
     mailFromAddress: "support@flow2print.local",
+    replyToEmail: "support@flow2print.local",
     primaryColor: "#184a8c",
     logoText: "F2P",
+    logoUrl: "",
+    logoAssetId: null,
     portalAppUrl: "",
     designerAppUrl: "",
     adminAppUrl: "",
     commerceBaseUrl: "",
+    publicApiUrl: "",
     defaultLocale: "en-US",
     defaultTimezone: "Europe/Berlin",
+    defaultCurrency: "EUR",
+    sessionTtlHours: 12,
+    passwordResetTtlMinutes: 30,
+    maxUploadMb: 50,
+    maxImageEdgePx: 10000,
     updatedAt
   };
 };
@@ -917,17 +1056,36 @@ export const createAssetRecord = (input: {
   filename: string;
   kind?: AssetKind;
   mimeType?: string;
+  status?: AssetProcessingStatus;
+  originalObjectKey?: string | null;
+  normalizedObjectKey?: string | null;
+  sizeBytes?: number | null;
   widthPx?: number | null;
   heightPx?: number | null;
+  dpiX?: number | null;
+  dpiY?: number | null;
+  colorSpace?: string | null;
+  iccProfileRef?: string | null;
+  sha256?: string | null;
 }): AssetRecord => ({
   id: `ast_${randomUUID()}`,
   tenantId: "org_public",
   ownerIdentityId: "usr_demo",
   kind: input.kind ?? "image",
+  status: input.status ?? "ready",
   filename: input.filename,
   mimeType: input.mimeType ?? "image/png",
+  originalObjectKey: input.originalObjectKey ?? null,
+  normalizedObjectKey: input.normalizedObjectKey ?? null,
+  sizeBytes: input.sizeBytes ?? null,
   widthPx: input.widthPx ?? null,
   heightPx: input.heightPx ?? null,
+  dpiX: input.dpiX ?? null,
+  dpiY: input.dpiY ?? null,
+  colorSpace: input.colorSpace ?? null,
+  iccProfileRef: input.iccProfileRef ?? null,
+  sha256: input.sha256 ?? null,
+  updatedAt: new Date().toISOString(),
   createdAt: new Date().toISOString()
 });
 
@@ -1005,6 +1163,9 @@ export const createEmptyState = (): Flow2PrintState => ({
   projects: [],
   projectVersions: [],
   assets: [],
+  assetVariants: [],
+  fontFamilies: [],
+  fontFiles: [],
   outputArtifacts: [],
   preflightReports: []
 });

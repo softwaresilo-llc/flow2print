@@ -17,5 +17,8 @@
     "@flow2print/design-document": "workspace:*",
     "@flow2print/domain": "workspace:*",
     "@flow2print/http-sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "sharp": "^0.34.5"
   }
 }

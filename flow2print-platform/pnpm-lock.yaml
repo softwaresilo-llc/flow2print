@@ -247,7 +247,7 @@ importers:
         version: 0.2.2
     devDependencies:
       sharp:
-        specifier: ^0.34.4
+        specifier: ^0.34.5
         version: 0.34.5
 
   apps/identity-service:
@@ -476,7 +476,7 @@ importers:
         version: link:../http-sdk
     devDependencies:
       sharp:
-        specifier: ^0.34.4
+        specifier: ^0.34.5
         version: 0.34.5
 
   packages/testing:

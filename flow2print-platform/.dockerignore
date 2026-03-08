@@ -1,0 +1,13 @@
+.git
+.github
+node_modules
+**/node_modules
+dist
+**/dist
+.turbo
+.pnpm-store
+.flow2print-runtime*
+.flow2print-object-storage
+coverage
+tmp
+*.log

@@ -30,5 +30,8 @@
     "class-validator": "^0.14.2",
     "fastify": "^5.6.0",
     "reflect-metadata": "^0.2.2"
+  },
+  "devDependencies": {
+    "sharp": "^0.34.5"
   }
 }

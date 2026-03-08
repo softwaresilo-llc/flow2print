@@ -4,8 +4,10 @@ import type { Flow2PrintDocument } from "@flow2print/design-document";
 import { summarizeDocument } from "@flow2print/editor-engine";
 
 import { DesignerLauncher } from "./components/DesignerLauncher";
+import { DesignerAssetsPanel } from "./components/DesignerAssetsPanel";
 import { DesignerEditPanel } from "./components/DesignerEditPanel";
 import { DesignerFinishPanel } from "./components/DesignerFinishPanel";
+import { DesignerHistoryPanel } from "./components/DesignerHistoryPanel";
 import { DesignerInspectorPanel } from "./components/DesignerInspectorPanel";
 import { DesignerNavigatorPanel } from "./components/DesignerNavigatorPanel";
 import { DesignerOverlay } from "./components/DesignerOverlay";
@@ -116,6 +118,12 @@ interface TemplateRecord {
   status: "published" | "draft";
 }
 
+interface HistoryEntryMeta {
+  label: string;
+  createdAt: string;
+  icon: string;
+}
+
 type DesignerLayer = Flow2PrintDocument["surfaces"][number]["layers"][number];
 type DesignerSurface = Flow2PrintDocument["surfaces"][number];
 
@@ -158,6 +166,50 @@ const badgeTone = (value: string | null) => {
 };
 
 const humanizeStatus = (value: string) => value.replaceAll("_", " ");
+const formatShortTime = (value: string) =>
+  new Intl.DateTimeFormat("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).format(new Date(value));
+const formatRelativeTime = (value: string) => {
+  const deltaMs = Date.now() - new Date(value).getTime();
+  const minutes = Math.max(1, Math.round(deltaMs / 60000));
+  if (minutes < 60) {
+    return `${minutes} minute${minutes === 1 ? "" : "s"} ago`;
+  }
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) {
+    return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+  }
+  const days = Math.round(hours / 24);
+  return `${days} day${days === 1 ? "" : "s"} ago`;
+};
+const historyIconForLabel = (label: string) => {
+  const normalized = label.toLowerCase();
+  if (normalized.includes("color")) {
+    return "palette";
+  }
+  if (normalized.includes("move") || normalized.includes("align") || normalized.includes("nudge")) {
+    return "open_with";
+  }
+  if (normalized.includes("text") || normalized.includes("rename") || normalized.includes("edit")) {
+    return "edit_note";
+  }
+  if (normalized.includes("add")) {
+    return "add_box";
+  }
+  if (normalized.includes("delete") || normalized.includes("remove")) {
+    return "delete";
+  }
+  if (normalized.includes("group")) {
+    return "layers";
+  }
+  if (normalized.includes("image") || normalized.includes("crop")) {
+    return "image";
+  }
+  return "history";
+};
 
 const deepCloneDocument = (document: Flow2PrintDocument) =>
   JSON.parse(JSON.stringify(document)) as Flow2PrintDocument;
@@ -273,6 +325,7 @@ export const DesignerApp = () => {
   const [gridEnabled, setGridEnabled] = useState(true);
   const [snapEnabled, setSnapEnabled] = useState(true);
   const [leftPanel, setLeftPanel] = useState<"layers" | "assets" | "history">("layers");
+  const [assetSearchQuery, setAssetSearchQuery] = useState("");
   const [rightPanel, setRightPanel] = useState<"edit" | "review" | "finish">("edit");
   const [cropMode, setCropMode] = useState(false);
   const [viewportSize, setViewportSize] = useState(() => ({
@@ -294,8 +347,8 @@ export const DesignerApp = () => {
   const [dropTargetLayerId, setDropTargetLayerId] = useState<string | null>(null);
   const [historyPast, setHistoryPast] = useState<Flow2PrintDocument[]>([]);
   const [historyFuture, setHistoryFuture] = useState<Flow2PrintDocument[]>([]);
-  const [historyPastLabels, setHistoryPastLabels] = useState<string[]>([]);
-  const [historyFutureLabels, setHistoryFutureLabels] = useState<string[]>([]);
+  const [historyPastEntries, setHistoryPastEntries] = useState<HistoryEntryMeta[]>([]);
+  const [historyFutureEntries, setHistoryFutureEntries] = useState<HistoryEntryMeta[]>([]);
   const [filePickerMode, setFilePickerMode] = useState<"insert" | "replace">("insert");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const stageRef = useRef<FabricCanvasStageHandle | null>(null);
@@ -591,9 +644,16 @@ export const DesignerApp = () => {
       return;
     }
     setHistoryPast((entries) => [...entries.slice(-39), deepCloneDocument(draftDocument)]);
-    setHistoryPastLabels((entries) => [...entries.slice(-39), label]);
+    setHistoryPastEntries((entries) => [
+      ...entries.slice(-39),
+      {
+        label,
+        createdAt: new Date().toISOString(),
+        icon: historyIconForLabel(label)
+      }
+    ]);
     setHistoryFuture([]);
-    setHistoryFutureLabels([]);
+    setHistoryFutureEntries([]);
   };
 
   const undoChange = () => {
@@ -601,11 +661,16 @@ export const DesignerApp = () => {
       return;
     }
     const previous = historyPast[historyPast.length - 1];
-    const previousLabel = historyPastLabels[historyPastLabels.length - 1] ?? "Canvas change";
+    const previousEntry =
+      historyPastEntries[historyPastEntries.length - 1] ?? {
+        label: "Canvas change",
+        createdAt: new Date().toISOString(),
+        icon: historyIconForLabel("Canvas change")
+      };
     setHistoryPast((entries) => entries.slice(0, -1));
-    setHistoryPastLabels((entries) => entries.slice(0, -1));
+    setHistoryPastEntries((entries) => entries.slice(0, -1));
     setHistoryFuture((entries) => [deepCloneDocument(draftDocument), ...entries.slice(0, 39)]);
-    setHistoryFutureLabels((entries) => [previousLabel, ...entries.slice(0, 39)]);
+    setHistoryFutureEntries((entries) => [previousEntry, ...entries.slice(0, 39)]);
     setDraftDocument(deepCloneDocument(previous));
   };
 
@@ -614,12 +679,51 @@ export const DesignerApp = () => {
       return;
     }
     const [next, ...rest] = historyFuture;
-    const [nextLabel, ...restLabels] = historyFutureLabels;
+    const [nextEntry, ...restEntries] = historyFutureEntries;
     setHistoryFuture(rest);
-    setHistoryFutureLabels(restLabels);
+    setHistoryFutureEntries(restEntries);
     setHistoryPast((entries) => [...entries.slice(-39), deepCloneDocument(draftDocument)]);
-    setHistoryPastLabels((entries) => [...entries.slice(-39), nextLabel ?? "Canvas change"]);
+    setHistoryPastEntries((entries) => [
+      ...entries.slice(-39),
+      nextEntry ?? {
+        label: "Canvas change",
+        createdAt: new Date().toISOString(),
+        icon: historyIconForLabel("Canvas change")
+      }
+    ]);
     setDraftDocument(deepCloneDocument(next));
+  };
+
+  const restoreHistoryEntry = (restoreIndex: number) => {
+    if (!draftDocument || restoreIndex < 0 || restoreIndex >= historyPast.length) {
+      return;
+    }
+
+    const targetDocument = historyPast[restoreIndex];
+    const targetEntry = historyPastEntries[restoreIndex];
+    const newerDocuments = historyPast.slice(restoreIndex + 1).map((entry) => deepCloneDocument(entry));
+    const newerEntries = historyPastEntries.slice(restoreIndex + 1);
+
+    setHistoryFuture([deepCloneDocument(draftDocument), ...newerDocuments, ...historyFuture]);
+    setHistoryFutureEntries([
+      {
+        label: targetEntry?.label ?? "Canvas change",
+        createdAt: new Date().toISOString(),
+        icon: targetEntry?.icon ?? historyIconForLabel("Canvas change")
+      },
+      ...newerEntries,
+      ...historyFutureEntries
+    ]);
+    setHistoryPast(historyPast.slice(0, restoreIndex));
+    setHistoryPastEntries(historyPastEntries.slice(0, restoreIndex));
+    setDraftDocument(deepCloneDocument(targetDocument));
+  };
+
+  const clearHistory = () => {
+    setHistoryPast([]);
+    setHistoryFuture([]);
+    setHistoryPastEntries([]);
+    setHistoryFutureEntries([]);
   };
 
   const updateCurrentSurface = (updater: (surface: DesignerSurface) => DesignerSurface) => {
@@ -713,8 +817,8 @@ export const DesignerApp = () => {
       await reloadProject(project.id);
       setHistoryPast([]);
       setHistoryFuture([]);
-      setHistoryPastLabels([]);
-      setHistoryFutureLabels([]);
+      setHistoryPastEntries([]);
+      setHistoryFutureEntries([]);
     } finally {
       setSaving(false);
     }
@@ -747,8 +851,8 @@ export const DesignerApp = () => {
       setRightPanel("finish");
       setHistoryPast([]);
       setHistoryFuture([]);
-      setHistoryPastLabels([]);
-      setHistoryFutureLabels([]);
+      setHistoryPastEntries([]);
+      setHistoryFutureEntries([]);
     } finally {
       setFinalizing(false);
     }
@@ -1511,8 +1615,8 @@ export const DesignerApp = () => {
     }
     setHistoryPast([]);
     setHistoryFuture([]);
-    setHistoryPastLabels([]);
-    setHistoryFutureLabels([]);
+    setHistoryPastEntries([]);
+    setHistoryFutureEntries([]);
     setDraftDocument(deepCloneDocument(project.document));
     setSelectedSurfaceIndex(0);
     setSelectedLayerIds(project.document.surfaces[0]?.layers[0]?.id ? [project.document.surfaces[0].layers[0].id] : []);
@@ -1548,8 +1652,8 @@ export const DesignerApp = () => {
       setRightPanel("edit");
       setHistoryPast([]);
       setHistoryFuture([]);
-      setHistoryPastLabels([]);
-      setHistoryFutureLabels([]);
+      setHistoryPastEntries([]);
+      setHistoryFutureEntries([]);
     } finally {
       setTemplateBusy(false);
     }
@@ -1669,16 +1773,35 @@ export const DesignerApp = () => {
       .filter((asset): asset is AssetRecord => Boolean(asset));
   }, [assets, draftDocument]);
   const availableImageAssets = useMemo(() => assets.filter((asset) => asset.kind === "image"), [assets]);
+  const filteredImageAssets = useMemo(() => {
+    const query = assetSearchQuery.trim().toLowerCase();
+    return availableImageAssets
+      .filter((asset) => {
+        if (!query) {
+          return true;
+        }
+        return asset.filename.toLowerCase().includes(query) || asset.mimeType.toLowerCase().includes(query);
+      })
+      .map((asset) => ({
+        ...asset,
+        previewUrl: localAssetUrls[asset.id] ?? resolveApiUrl(`/v1/assets/${asset.id}/file`),
+        linked: linkedAssets.some((linkedAsset) => linkedAsset.id === asset.id)
+      }));
+  }, [assetSearchQuery, availableImageAssets, linkedAssets, localAssetUrls]);
   const recentHistoryEntries = useMemo(
     () =>
-      historyPastLabels
+      historyPastEntries
         .slice(-6)
         .reverse()
-        .map((label, index) => ({
-          id: `${label}-${index}`,
-          label
+        .map((entry, index) => ({
+          id: `${entry.label}-${entry.createdAt}-${index}`,
+          label: entry.label,
+          icon: entry.icon,
+          relativeTime: formatRelativeTime(entry.createdAt),
+          timeLabel: formatShortTime(entry.createdAt),
+          restoreIndex: historyPast.length - 1 - index
         })),
-    [historyPastLabels]
+    [historyPast.length, historyPastEntries]
   );
 
   const selectedLayerLayoutStatus = useMemo(() => {
@@ -1981,85 +2104,31 @@ export const DesignerApp = () => {
 
     if (leftPanel === "assets") {
       return (
-        <DesignerNavigatorPanel
-          title="Assets"
-          summary={`${availableImageAssets.length} files`}
-          description=""
-          content={
-          <>
-            <div className="asset-list">
-              {availableImageAssets.length === 0 ? <div className="empty-state">No uploaded image files yet.</div> : null}
-              {availableImageAssets.map((asset) => (
-                <div className="asset-item" key={`library-${asset.id}`}>
-                  <div className="asset-item__content">
-                    <strong>{asset.filename}</strong>
-                    <span>{asset.mimeType}</span>
-                  </div>
-                  {isEditableProject ? (
-                    <button type="button" className="button--ghost" onClick={() => placeExistingAsset(asset)}>
-                      Use
-                    </button>
-                  ) : (
-                    <span className="badge badge--neutral">Available</span>
-                  )}
-                </div>
-              ))}
-            </div>
-          </>
-          }
+        <DesignerAssetsPanel
+          assets={filteredImageAssets}
+          searchQuery={assetSearchQuery}
+          onSearchQueryChange={setAssetSearchQuery}
+          onUpload={() => openFilePicker("insert")}
+          onUseAsset={(assetId) => {
+            const asset = availableImageAssets.find((entry) => entry.id === assetId);
+            if (asset) {
+              placeExistingAsset(asset);
+            }
+          }}
+          isEditableProject={isEditableProject}
         />
       );
     }
 
     return (
-      <DesignerNavigatorPanel
-        title="History"
-        summary={`${historyPast.length} changes`}
-        description=""
-        content={
-          <>
-            <div className="history-summary">
-              <div className="kv-item">
-                <strong>Status</strong>
-                <span>{humanizeStatus(project.status)}</span>
-              </div>
-              <div className="kv-item">
-                <strong>Template</strong>
-                <span>{currentTemplate?.displayName ?? "Blank start"}</span>
-              </div>
-              <div className="kv-item">
-                <strong>Changes not saved</strong>
-                <span>{hasUnsavedChanges ? "Yes" : "No"}</span>
-              </div>
-              <div className="kv-item">
-                <strong>Undo available</strong>
-                <span>{historyPast.length}</span>
-              </div>
-            </div>
-            <div className="history-list">
-              {recentHistoryEntries.length === 0 ? (
-                <div className="empty-state">No local changes yet. Start with text, an image, or a template.</div>
-              ) : null}
-              {recentHistoryEntries.map((entry, index) => (
-                <div className="history-item" key={entry.id}>
-                  <span className="history-item__index">{recentHistoryEntries.length - index}</span>
-                  <div className="history-item__content">
-                    <strong>{entry.label}</strong>
-                    <span>{index === 0 ? "Most recent" : "Earlier in this session"}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="layout-guide-card">
-              <div className="kv-list">
-                <div className="kv-item">
-                  <strong>Shortcuts</strong>
-                  <span>Save, undo, delete, arrows.</span>
-                </div>
-              </div>
-            </div>
-          </>
-        }
+      <DesignerHistoryPanel
+        statusLabel={humanizeStatus(project.status)}
+        templateName={currentTemplate?.displayName ?? "Blank start"}
+        hasUnsavedChanges={hasUnsavedChanges}
+        undoCount={historyPast.length}
+        entries={recentHistoryEntries}
+        onRestore={restoreHistoryEntry}
+        onClear={clearHistory}
       />
     );
   };

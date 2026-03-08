@@ -28,6 +28,7 @@ interface FabricCanvasStageProps {
   guidesVisible: boolean;
   isEditable: boolean;
   onSelectionChange: (ids: string[]) => void;
+  onOpenLayerContextMenu: (x: number, y: number, layerId: string) => void;
   onSurfaceChange: (surface: DesignerSurface, historyLabel: string) => void;
 }
 
@@ -119,7 +120,7 @@ const createTextObject = (layer: DesignerLayer, scale: number) =>
     fontSize: Math.max(10, Number(layer.metadata.fontSize ?? 18) * scale * 0.28),
     fontWeight: String(layer.metadata.fontWeight ?? "600"),
     textAlign: String(layer.metadata.textAlign ?? "left") as "left" | "center" | "right",
-    editable: false
+    editable: !layer.locked
   });
 
 const createShapeObject = (layer: DesignerLayer, scale: number) =>
@@ -127,7 +128,7 @@ const createShapeObject = (layer: DesignerLayer, scale: number) =>
     left: layer.x * scale,
     top: layer.y * scale,
     width: layer.width * scale,
-    height: layer.height * scale,
+    height: Math.max(String(layer.metadata.variant ?? "") === "divider" ? 3 : 1, layer.height * scale),
     angle: layer.rotation,
     opacity: layer.opacity,
     visible: layer.visible,
@@ -137,11 +138,11 @@ const createShapeObject = (layer: DesignerLayer, scale: number) =>
     lockScalingFlip: true,
     originX: "left",
     originY: "top",
-    rx: 10,
-    ry: 10,
+    rx: String(layer.metadata.variant ?? "") === "divider" ? 999 : 10,
+    ry: String(layer.metadata.variant ?? "") === "divider" ? 999 : 10,
     fill: String(layer.metadata.fill ?? "#dbe8ff"),
-    stroke: "#9bb0d8",
-    strokeWidth: 1
+    stroke: String(layer.metadata.variant ?? "") === "divider" ? String(layer.metadata.fill ?? "#9fb0c8") : "#9bb0d8",
+    strokeWidth: String(layer.metadata.variant ?? "") === "divider" ? 0 : 1
   });
 
 const createQrOrBarcodeObject = (layer: DesignerLayer, scale: number) => {
@@ -466,6 +467,7 @@ export const FabricCanvasStage = forwardRef<FabricCanvasStageHandle, FabricCanva
       guidesVisible,
       isEditable,
       onSelectionChange,
+      onOpenLayerContextMenu,
       onSurfaceChange
     },
     ref
@@ -522,6 +524,9 @@ export const FabricCanvasStage = forwardRef<FabricCanvasStageHandle, FabricCanva
         preserveObjectStacking: true,
         selection: isEditable
       });
+      if (import.meta.env.DEV && typeof window !== "undefined") {
+        (window as Window & { __FLOW2PRINT_STAGE__?: Canvas }).__FLOW2PRINT_STAGE__ = canvas;
+      }
       (canvas as Canvas & { selectionKey?: string[] }).selectionKey = ["shiftKey"];
       canvasRef.current = canvas;
 
@@ -535,6 +540,11 @@ export const FabricCanvasStage = forwardRef<FabricCanvasStageHandle, FabricCanva
       canvas.on("selection:created", syncSelection);
       canvas.on("selection:updated", syncSelection);
       canvas.on("selection:cleared", syncSelection);
+      const preventContextMenu = (event: Event) => {
+        event.preventDefault();
+      };
+      canvas.upperCanvasEl?.addEventListener("contextmenu", preventContextMenu);
+      canvas.lowerCanvasEl?.addEventListener("contextmenu", preventContextMenu);
       canvas.on("object:modified", (event) => {
         if (syncingRef.current || !event.target) {
           return;
@@ -542,7 +552,29 @@ export const FabricCanvasStage = forwardRef<FabricCanvasStageHandle, FabricCanva
         const targetType = event.transform?.action ?? "modified";
         onSurfaceChange(surfaceFromCanvas(canvas, surface, scale), HISTORY_LABELS[targetType] ?? "Edit selection");
       });
+      canvas.on("text:changed", () => {
+        if (syncingRef.current) {
+          return;
+        }
+        onSurfaceChange(surfaceFromCanvas(canvas, surface, scale), "Edit text");
+      });
+      canvas.on("text:editing:exited", () => {
+        if (syncingRef.current) {
+          return;
+        }
+        onSurfaceChange(surfaceFromCanvas(canvas, surface, scale), "Edit text");
+      });
       canvas.on("mouse:down", (event) => {
+        const pointerEvent = event.e as MouseEvent;
+        if ("button" in pointerEvent && pointerEvent.button === 2) {
+          const target = event.target as FabricLayerObject | undefined;
+          const layerId = target?.data?.layerId;
+          if (layerId) {
+            pointerEvent.preventDefault();
+            onOpenLayerContextMenu(pointerEvent.clientX, pointerEvent.clientY, layerId);
+            return;
+          }
+        }
         if (!cropMode || !cropLayerId) {
           return;
         }
@@ -562,6 +594,22 @@ export const FabricCanvasStage = forwardRef<FabricCanvasStageHandle, FabricCanva
           imageStartLeft: image.left ?? 0,
           imageStartTop: image.top ?? 0
         };
+      });
+      canvas.on("mouse:dblclick", (event) => {
+        if (!isEditable || cropMode) {
+          return;
+        }
+        const target = event.target;
+        if (!(target instanceof Textbox)) {
+          return;
+        }
+        if ((target as FabricLayerObject).data?.locked) {
+          return;
+        }
+        target.enterEditing();
+        target.selectAll();
+        (target.hiddenTextarea as HTMLTextAreaElement | undefined)?.focus();
+        canvas.requestRenderAll();
       });
       canvas.on("mouse:move", (event) => {
         if (!cropDragRef.current || !cropMode || !cropLayerId) {
@@ -601,10 +649,15 @@ export const FabricCanvasStage = forwardRef<FabricCanvasStageHandle, FabricCanva
       });
 
       return () => {
+        canvas.upperCanvasEl?.removeEventListener("contextmenu", preventContextMenu);
+        canvas.lowerCanvasEl?.removeEventListener("contextmenu", preventContextMenu);
+        if (import.meta.env.DEV && typeof window !== "undefined") {
+          delete (window as Window & { __FLOW2PRINT_STAGE__?: Canvas }).__FLOW2PRINT_STAGE__;
+        }
         canvas.dispose();
         canvasRef.current = null;
       };
-    }, [cropLayerId, cropMode, isEditable, onSelectionChange, onSurfaceChange, scale, surface]);
+    }, [cropLayerId, cropMode, isEditable, onOpenLayerContextMenu, onSelectionChange, onSurfaceChange, scale, surface]);
 
     useEffect(() => {
       const canvas = canvasRef.current;
@@ -701,12 +754,24 @@ export const FabricCanvasStage = forwardRef<FabricCanvasStageHandle, FabricCanva
             layerObject.lockMovementY = !isEditable || Boolean(layerObject.data?.locked) || isCropTarget;
             layerObject.lockRotation = !isEditable || Boolean(layerObject.data?.locked) || isCropTarget;
             layerObject.hasControls = isEditable && !Boolean(layerObject.data?.locked) && !isCropTarget;
+            if (layerObject instanceof Textbox) {
+              const layerTextbox = layerObject as Textbox & FabricLayerObject;
+              layerTextbox.editable = isEditable && !Boolean(layerTextbox.data?.locked);
+              layerTextbox.hoverCursor = isEditable && !Boolean(layerTextbox.data?.locked) ? "text" : "default";
+              layerObject.on("editing:exited", () => {
+                if (syncingRef.current) {
+                  return;
+                }
+                onSurfaceChange(surfaceFromCanvas(canvas, surface, scale), "Edit text");
+              });
+            }
             if (isCropTarget) {
               layerObject.hoverCursor = "move";
             }
             canvas.add(object);
-            if (layerObject.data?.layerId) {
-              nextMap.set(layerObject.data.layerId, layerObject);
+            const mappedLayerObject = layerObject as FabricLayerObject;
+            if (mappedLayerObject.data?.layerId) {
+              nextMap.set(mappedLayerObject.data.layerId, mappedLayerObject);
             }
           }
           objectMapRef.current = nextMap;
@@ -746,6 +811,6 @@ export const FabricCanvasStage = forwardRef<FabricCanvasStageHandle, FabricCanva
       };
     }, [assetUrls, cropLayerId, cropMode, gridEnabled, guidesVisible, isEditable, scale, selectedLayerIds, surface]);
 
-    return <canvas ref={canvasElementRef} className="fabric-stage" />;
+    return <canvas ref={canvasElementRef} className={`fabric-stage ${isEditable ? "fabric-stage--interactive" : ""}`} />;
   }
 );

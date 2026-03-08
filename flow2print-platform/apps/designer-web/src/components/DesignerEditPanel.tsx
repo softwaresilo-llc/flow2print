@@ -29,8 +29,8 @@ export const DesignerEditPanel = ({
   if (!selectedLayer) {
     return (
       <div className="inspector-empty">
-        <h4>Select an item</h4>
-        <p>Click text, an image, or a shape on the page to edit it here.</p>
+        <h4>Select something on the canvas</h4>
+        <p>Use the page first. Properties show up here when you need them.</p>
       </div>
     );
   }
@@ -51,7 +51,7 @@ export const DesignerEditPanel = ({
         <div className="workspace-alert workspace-alert--subtle">
           <div>
             <strong>Read-only preview.</strong>
-            <p>This version is locked because files already exist.</p>
+            <p>This version is locked because print files already exist.</p>
           </div>
         </div>
         <div className="inspector-section">
@@ -145,7 +145,7 @@ export const DesignerEditPanel = ({
           <span className={`badge ${selectedLayer.visible ? "badge--accent" : "badge--warning"}`}>
             {selectedLayer.visible ? "visible" : "hidden"}
           </span>
-          {selectedLayer.locked ? <span className="badge badge--neutral">locked</span> : null}
+          {selectedLayer.locked ? <span className="badge badge--danger">locked</span> : null}
         </div>
       </div>
       {!selectedLayer.visible ? (
@@ -158,7 +158,7 @@ export const DesignerEditPanel = ({
       ) : null}
       <div className="inspector-section">
         <div className="inspector-section__header">
-          <h4>Field name</h4>
+          <h4>Content</h4>
         </div>
         <label>
           <span>Layer label</span>
@@ -190,7 +190,7 @@ export const DesignerEditPanel = ({
                 }
                 disabled={selectedLayer.locked}
               />
-              <small className="field-hint">Type your headline or job title</small>
+              <small className="field-hint">Edit the selected copy.</small>
             </label>
             <div className="inspector-grid">
               <label>
@@ -271,23 +271,44 @@ export const DesignerEditPanel = ({
           </>
         ) : null}
         {selectedLayer.type === "shape" ? (
-          <label>
-            <span>Color</span>
-            <input
-              type="color"
-              value={String(selectedLayer.metadata.fill ?? "#dbe8ff")}
-              onChange={(event) =>
-                onUpdateSelectedLayer((layer) => ({
-                  ...layer,
-                  metadata: {
-                    ...layer.metadata,
-                    fill: event.target.value
+          <>
+            <label>
+              <span>{String(selectedLayer.metadata.variant ?? "") === "divider" ? "Line color" : "Color"}</span>
+              <input
+                type="color"
+                value={String(selectedLayer.metadata.fill ?? "#dbe8ff")}
+                onChange={(event) =>
+                  onUpdateSelectedLayer((layer) => ({
+                    ...layer,
+                    metadata: {
+                      ...layer.metadata,
+                      fill: event.target.value
+                    }
+                  }))
+                }
+                disabled={selectedLayer.locked}
+              />
+            </label>
+            {String(selectedLayer.metadata.variant ?? "") === "divider" ? (
+              <label>
+                <span>Thickness</span>
+                <input
+                  type="range"
+                  min="2"
+                  max="12"
+                  step="1"
+                  value={Math.max(2, Math.round(selectedLayer.height))}
+                  onChange={(event) =>
+                    onUpdateSelectedLayer((layer) => ({
+                      ...layer,
+                      height: Number(event.target.value)
+                    }))
                   }
-                }))
-              }
-              disabled={selectedLayer.locked}
-            />
-          </label>
+                  disabled={selectedLayer.locked}
+                />
+              </label>
+            ) : null}
+          </>
         ) : null}
         {selectedLayer.type === "qr" || selectedLayer.type === "barcode" ? (
           <label>
@@ -358,7 +379,7 @@ export const DesignerEditPanel = ({
               </label>
             </div>
             <div className="read-only-note">
-              Use <strong>Crop image</strong> above the canvas to move the picture inside its frame.
+              Use <strong>Crop image</strong> above the canvas to reposition the photo.
             </div>
             <div className="stack-actions">
               <button
@@ -392,7 +413,7 @@ export const DesignerEditPanel = ({
       </div>
       <div className="inspector-section">
         <div className="inspector-section__header">
-          <h4>Position &amp; size</h4>
+          <h4>Layout</h4>
         </div>
         <div className="inspector-grid">
           <label>

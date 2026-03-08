@@ -1,14 +1,16 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type PointerEvent as ReactPointerEvent } from "react";
 
 import type { Flow2PrintDocument } from "@flow2print/design-document";
 import { summarizeDocument } from "@flow2print/editor-engine";
 
 import { DesignerLauncher } from "./components/DesignerLauncher";
 import { DesignerAssetsPanel } from "./components/DesignerAssetsPanel";
+import { DesignerAssetContextMenu } from "./components/DesignerAssetContextMenu";
 import { DesignerEditPanel } from "./components/DesignerEditPanel";
 import { DesignerFinishPanel } from "./components/DesignerFinishPanel";
 import { DesignerHistoryPanel } from "./components/DesignerHistoryPanel";
 import { DesignerInspectorPanel } from "./components/DesignerInspectorPanel";
+import { DesignerMoreElementsPanel } from "./components/DesignerMoreElementsPanel";
 import { DesignerNavigatorPanel } from "./components/DesignerNavigatorPanel";
 import { DesignerOverlay } from "./components/DesignerOverlay";
 import { DesignerPreviewPanel } from "./components/DesignerPreviewPanel";
@@ -214,6 +216,114 @@ const historyIconForLabel = (label: string) => {
 const deepCloneDocument = (document: Flow2PrintDocument) =>
   JSON.parse(JSON.stringify(document)) as Flow2PrintDocument;
 const deepCloneLayer = (layer: DesignerLayer) => JSON.parse(JSON.stringify(layer)) as DesignerLayer;
+const isGroupLayer = (layer: DesignerLayer): layer is DesignerLayer & { type: "group" } => layer.type === "group";
+const getGroupChildren = (layer: DesignerLayer) =>
+  isGroupLayer(layer) && Array.isArray(layer.metadata.children)
+    ? (layer.metadata.children as DesignerLayer[])
+    : [];
+
+const flattenLayerTree = (layers: DesignerLayer[]): DesignerLayer[] =>
+  layers.flatMap((layer) => [layer, ...flattenLayerTree(getGroupChildren(layer))]);
+
+const findLayerInTree = (
+  layers: DesignerLayer[],
+  layerId: string,
+  parentGroupId: string | null = null
+): { layer: DesignerLayer; parentGroupId: string | null } | null => {
+  for (const layer of layers) {
+    if (layer.id === layerId) {
+      return { layer, parentGroupId };
+    }
+    const childMatch = findLayerInTree(getGroupChildren(layer), layerId, layer.id);
+    if (childMatch) {
+      return childMatch;
+    }
+  }
+  return null;
+};
+
+const updateLayerTree = (
+  layers: DesignerLayer[],
+  layerId: string,
+  updater: (layer: DesignerLayer) => DesignerLayer
+): DesignerLayer[] =>
+  layers.map((layer) => {
+    if (layer.id === layerId) {
+      return updater(layer);
+    }
+    const children = getGroupChildren(layer);
+    if (children.length === 0) {
+      return layer;
+    }
+    return {
+      ...layer,
+      metadata: {
+        ...layer.metadata,
+        children: updateLayerTree(children, layerId, updater)
+      }
+    };
+  });
+
+const removeLayerFromTree = (
+  layers: DesignerLayer[],
+  layerId: string
+): { layers: DesignerLayer[]; removed: DesignerLayer | null } => {
+  let removed: DesignerLayer | null = null;
+  const nextLayers: DesignerLayer[] = [];
+
+  for (const layer of layers) {
+    if (layer.id === layerId) {
+      removed = deepCloneLayer(layer);
+      continue;
+    }
+    const children = getGroupChildren(layer);
+    if (children.length > 0) {
+      const childResult = removeLayerFromTree(children, layerId);
+      if (childResult.removed) {
+        removed = childResult.removed;
+        nextLayers.push({
+          ...layer,
+          metadata: {
+            ...layer.metadata,
+            children: childResult.layers
+          }
+        });
+        continue;
+      }
+    }
+    nextLayers.push(layer);
+  }
+
+  return { layers: nextLayers, removed };
+};
+
+const insertLayerIntoGroupTree = (
+  layers: DesignerLayer[],
+  groupId: string,
+  layerToInsert: DesignerLayer
+): DesignerLayer[] =>
+  layers.map((layer) => {
+    if (layer.id === groupId && isGroupLayer(layer)) {
+      return {
+        ...layer,
+        metadata: {
+          ...layer.metadata,
+          children: [...getGroupChildren(layer), deepCloneLayer(layerToInsert)]
+        }
+      };
+    }
+    const children = getGroupChildren(layer);
+    if (children.length === 0) {
+      return layer;
+    }
+    return {
+      ...layer,
+      metadata: {
+        ...layer.metadata,
+        children: insertLayerIntoGroupTree(children, groupId, layerToInsert)
+      }
+    };
+  });
 
 const pruneUnusedDocumentAssets = (document: Flow2PrintDocument): Flow2PrintDocument => {
   const usedAssetIds = new Set(
@@ -238,6 +348,19 @@ const getImageLayerSize = (surface: DesignerSurface) => ({
   width: Math.max(18, Math.min(surface.safeBox.width * 0.6, surface.artboard.width - 12, 68)),
   height: Math.max(18, Math.min(surface.safeBox.height * 0.45, surface.artboard.height - 12, 58))
 });
+const getNextInsertPosition = (surface: DesignerSurface, itemWidth: number, itemHeight: number) => {
+  const safe = surface.safeBox;
+  const columns = Math.max(1, Math.floor(safe.width / Math.max(itemWidth + 4, 20)));
+  const nextIndex = surface.layers.length;
+  const column = nextIndex % Math.min(columns, 3);
+  const row = Math.floor(nextIndex / Math.min(columns, 3)) % 4;
+  const offsetX = column * Math.max(itemWidth + 4, 12);
+  const offsetY = row * Math.max(itemHeight + 4, 8);
+  return {
+    x: Math.round(clamp(safe.x + 4 + offsetX, safe.x, safe.x + safe.width - itemWidth) * 10) / 10,
+    y: Math.round(clamp(safe.y + 4 + offsetY, safe.y, safe.y + safe.height - itemHeight) * 10) / 10
+  };
+};
 const layerPreviewIcon = (layer: DesignerLayer) => {
   if (layer.type === "text") {
     return "title";
@@ -246,7 +369,7 @@ const layerPreviewIcon = (layer: DesignerLayer) => {
     return "image";
   }
   if (layer.type === "shape") {
-    return "category";
+    return String(layer.metadata.variant ?? "") === "divider" ? "horizontal_rule" : "category";
   }
   if (layer.type === "qr") {
     return "qr_code_2";
@@ -323,9 +446,12 @@ export const DesignerApp = () => {
   const [zoom, setZoom] = useState(1);
   const [guidesVisible, setGuidesVisible] = useState(true);
   const [gridEnabled, setGridEnabled] = useState(true);
+  const [panMode, setPanMode] = useState(false);
   const [snapEnabled, setSnapEnabled] = useState(true);
   const [leftPanel, setLeftPanel] = useState<"layers" | "assets" | "history">("layers");
   const [assetSearchQuery, setAssetSearchQuery] = useState("");
+  const [editingTextLayerId, setEditingTextLayerId] = useState<string | null>(null);
+  const [editingTextValue, setEditingTextValue] = useState("");
   const [rightPanel, setRightPanel] = useState<"edit" | "review" | "finish">("edit");
   const [cropMode, setCropMode] = useState(false);
   const [viewportSize, setViewportSize] = useState(() => ({
@@ -343,8 +469,14 @@ export const DesignerApp = () => {
     y: number;
     layerId: string;
   } | null>(null);
+  const [assetContextMenu, setAssetContextMenu] = useState<{
+    x: number;
+    y: number;
+    assetId: string;
+  } | null>(null);
   const [draggingLayerId, setDraggingLayerId] = useState<string | null>(null);
   const [dropTargetLayerId, setDropTargetLayerId] = useState<string | null>(null);
+  const [expandedGroupIds, setExpandedGroupIds] = useState<string[]>([]);
   const [historyPast, setHistoryPast] = useState<Flow2PrintDocument[]>([]);
   const [historyFuture, setHistoryFuture] = useState<Flow2PrintDocument[]>([]);
   const [historyPastEntries, setHistoryPastEntries] = useState<HistoryEntryMeta[]>([]);
@@ -352,6 +484,13 @@ export const DesignerApp = () => {
   const [filePickerMode, setFilePickerMode] = useState<"insert" | "replace">("insert");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const stageRef = useRef<FabricCanvasStageHandle | null>(null);
+  const stageViewportRef = useRef<HTMLDivElement | null>(null);
+  const panSessionRef = useRef<null | {
+    startX: number;
+    startY: number;
+    scrollLeft: number;
+    scrollTop: number;
+  }>(null);
   const errorTitle = error?.startsWith("This design link is no longer available")
     ? "Design link expired."
     : error?.startsWith("This project is no longer available")
@@ -498,14 +637,31 @@ export const DesignerApp = () => {
   };
 
   const currentSurface = draftDocument?.surfaces[selectedSurfaceIndex] ?? null;
-  const selectedLayer = currentSurface?.layers.find((layer) => layer.id === selectedLayerId) ?? null;
-  const selectedLayers = currentSurface?.layers.filter((layer) => selectedLayerIds.includes(layer.id)) ?? [];
+  const flattenedSurfaceLayers = useMemo(() => (currentSurface ? flattenLayerTree(currentSurface.layers) : []), [currentSurface]);
+  const selectedLayer = selectedLayerId ? flattenedSurfaceLayers.find((layer) => layer.id === selectedLayerId) ?? null : null;
+  const selectedLayers = flattenedSurfaceLayers.filter((layer) => selectedLayerIds.includes(layer.id));
   const isCompactViewport = viewportSize.width <= 720;
   const multiSelectionActive = selectedLayerIds.length > 1;
   const canGroupSelection = multiSelectionActive && selectedLayers.every((layer) => layer.type !== "group");
   const canDistributeSelection = selectedLayerIds.length > 2;
   const canUngroupSelection = !multiSelectionActive && selectedLayer?.type === "group";
-  const contextMenuLayer = currentSurface?.layers.find((layer) => layer.id === contextMenu?.layerId) ?? null;
+
+  useEffect(() => {
+    if (!currentSurface) {
+      setExpandedGroupIds([]);
+      return;
+    }
+    const groupIds = flattenLayerTree(currentSurface.layers)
+      .filter((layer) => layer.type === "group")
+      .map((layer) => layer.id);
+    setExpandedGroupIds((currentIds) => {
+      const retained = currentIds.filter((id) => groupIds.includes(id));
+      const missing = groupIds.filter((id) => !retained.includes(id));
+      return [...retained, ...missing];
+    });
+  }, [currentSurface]);
+  const contextMenuLayer = contextMenu?.layerId ? findLayerInTree(currentSurface?.layers ?? [], contextMenu.layerId)?.layer ?? null : null;
+  const contextMenuAsset = assets.find((asset) => asset.id === assetContextMenu?.assetId) ?? null;
   const layerAsset = selectedLayer
     ? assets.find((asset) => asset.id === String(selectedLayer.metadata.assetId ?? ""))
     : null;
@@ -530,6 +686,24 @@ export const DesignerApp = () => {
     }
     return JSON.stringify(project.document) !== JSON.stringify(draftDocument);
   }, [project, draftDocument]);
+
+  const startStagePan = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!panMode || !stageViewportRef.current) {
+      return;
+    }
+    const interactiveTarget = event.target as HTMLElement | null;
+    if (interactiveTarget?.closest("button, input, textarea, select, a")) {
+      return;
+    }
+    event.preventDefault();
+    panSessionRef.current = {
+      startX: event.clientX,
+      startY: event.clientY,
+      scrollLeft: stageViewportRef.current.scrollLeft,
+      scrollTop: stageViewportRef.current.scrollTop
+    };
+    document.body.classList.add("designer-pan-active");
+  };
 
   useEffect(() => {
     if (!draftDocument) {
@@ -576,11 +750,14 @@ export const DesignerApp = () => {
   }, [selectedLayer]);
 
   useEffect(() => {
-    if (!contextMenu) {
+    if (!contextMenu && !assetContextMenu) {
       return;
     }
 
-    const close = () => setContextMenu(null);
+    const close = () => {
+      setContextMenu(null);
+      setAssetContextMenu(null);
+    };
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         close();
@@ -596,7 +773,36 @@ export const DesignerApp = () => {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("scroll", close, true);
     };
-  }, [contextMenu]);
+  }, [assetContextMenu, contextMenu]);
+
+  useEffect(() => {
+    const handlePointerMove = (event: PointerEvent) => {
+      const session = panSessionRef.current;
+      const viewport = stageViewportRef.current;
+      if (!session || !viewport) {
+        return;
+      }
+      event.preventDefault();
+      viewport.scrollLeft = session.scrollLeft - (event.clientX - session.startX);
+      viewport.scrollTop = session.scrollTop - (event.clientY - session.startY);
+    };
+
+    const handlePointerUp = () => {
+      if (!panSessionRef.current) {
+        return;
+      }
+      panSessionRef.current = null;
+      document.body.classList.remove("designer-pan-active");
+    };
+
+    window.addEventListener("pointermove", handlePointerMove, { passive: false });
+    window.addEventListener("pointerup", handlePointerUp);
+
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+    };
+  }, []);
 
   useEffect(() => {
     if (project) {
@@ -637,6 +843,25 @@ export const DesignerApp = () => {
 
   const updateDraftDocument = (updater: (document: Flow2PrintDocument) => Flow2PrintDocument) => {
     setDraftDocument((document) => (document ? updater(document) : document));
+  };
+
+  const renameLayer = (layerId: string) => {
+    if (!currentSurface) {
+      return;
+    }
+    const targetLayer = findLayerInTree(currentSurface.layers, layerId)?.layer ?? null;
+    if (!targetLayer) {
+      return;
+    }
+    const nextName = window.prompt("Rename layer", targetLayer.name)?.trim();
+    if (!nextName || nextName === targetLayer.name) {
+      return;
+    }
+    captureHistory("Rename layer");
+    updateCurrentSurface((surface) => ({
+      ...surface,
+      layers: updateLayerTree(surface.layers, layerId, (layer) => ({ ...layer, name: nextName }))
+    }));
   };
 
   const captureHistory = (label = "Canvas change") => {
@@ -741,7 +966,7 @@ export const DesignerApp = () => {
     }
     updateCurrentSurface((surface) => ({
       ...surface,
-      layers: surface.layers.map((layer) => (layer.id === selectedLayerId ? updater(layer) : layer))
+      layers: updateLayerTree(surface.layers, selectedLayerId, updater)
     }));
   };
 
@@ -776,6 +1001,30 @@ export const DesignerApp = () => {
       },
       layerId
     );
+  };
+
+  const openLayerContextMenuAt = (x: number, y: number, layerId: string) => {
+    openLayerContextMenu(
+      {
+        preventDefault: () => undefined,
+        clientX: x,
+        clientY: y
+      },
+      layerId
+    );
+  };
+
+  const openAssetContextMenuFromElement = (element: Element, assetId: string) => {
+    if (!isEditableProject) {
+      return;
+    }
+    const rect = element.getBoundingClientRect();
+    setContextMenu(null);
+    setAssetContextMenu({
+      x: rect.right - 8,
+      y: rect.bottom + 6,
+      assetId
+    });
   };
 
   const updateLayerNumericField = (field: "x" | "y" | "width" | "height" | "rotation" | "opacity", value: string) => {
@@ -865,6 +1114,9 @@ export const DesignerApp = () => {
     setContextMenu(null);
     captureHistory("Add text");
     const layerId = `lyr_${crypto.randomUUID()}`;
+    const itemWidth = Math.max(40, currentSurface.artboard.width - 24);
+    const itemHeight = 24;
+    const position = getNextInsertPosition(currentSurface, itemWidth, itemHeight);
     updateCurrentSurface((surface) => ({
       ...surface,
       layers: [
@@ -875,10 +1127,10 @@ export const DesignerApp = () => {
           name: `Text ${surface.layers.length + 1}`,
           visible: true,
           locked: false,
-          x: 12,
-          y: 12 + surface.layers.length * 6,
-          width: Math.max(40, surface.artboard.width - 24),
-          height: 24,
+          x: position.x,
+          y: position.y,
+          width: itemWidth,
+          height: itemHeight,
           rotation: 0,
           opacity: 1,
           metadata: {
@@ -891,13 +1143,17 @@ export const DesignerApp = () => {
     setSelectedLayerId(layerId);
   };
 
-  const addShapeLayer = () => {
+  const addShapeLayer = (variant?: "divider") => {
     if (!currentSurface) {
       return;
     }
     setContextMenu(null);
-    captureHistory("Add shape");
+    const isDivider = variant === "divider";
+    captureHistory(isDivider ? "Add divider" : "Add shape");
     const layerId = `lyr_${crypto.randomUUID()}`;
+    const itemWidth = isDivider ? Math.max(56, currentSurface.safeBox.width - 8) : 32;
+    const itemHeight = isDivider ? 4 : 20;
+    const position = getNextInsertPosition(currentSurface, itemWidth, itemHeight);
     updateCurrentSurface((surface) => ({
       ...surface,
       layers: [
@@ -905,17 +1161,18 @@ export const DesignerApp = () => {
         {
           id: layerId,
           type: "shape",
-          name: `Shape ${surface.layers.length + 1}`,
+          name: `${isDivider ? "Divider" : "Shape"} ${surface.layers.length + 1}`,
           visible: true,
           locked: false,
-          x: 16,
-          y: 16 + surface.layers.length * 8,
-          width: 32,
-          height: 20,
+          x: position.x,
+          y: position.y,
+          width: itemWidth,
+          height: itemHeight,
           rotation: 0,
           opacity: 1,
           metadata: {
-            fill: "#dbe8ff"
+            variant: isDivider ? "divider" : undefined,
+            fill: isDivider ? "#9fb0c8" : "#dbe8ff"
           }
         }
       ]
@@ -931,6 +1188,9 @@ export const DesignerApp = () => {
     setContextMenu(null);
     captureHistory("Add QR code");
     const layerId = `lyr_${crypto.randomUUID()}`;
+    const itemWidth = 28;
+    const itemHeight = 28;
+    const position = getNextInsertPosition(currentSurface, itemWidth, itemHeight);
     updateCurrentSurface((surface) => ({
       ...surface,
       layers: [
@@ -941,10 +1201,10 @@ export const DesignerApp = () => {
           name: `QR Code ${surface.layers.length + 1}`,
           visible: true,
           locked: false,
-          x: 16,
-          y: 16 + surface.layers.length * 8,
-          width: 28,
-          height: 28,
+          x: position.x,
+          y: position.y,
+          width: itemWidth,
+          height: itemHeight,
           rotation: 0,
           opacity: 1,
           metadata: {
@@ -964,6 +1224,9 @@ export const DesignerApp = () => {
     setContextMenu(null);
     captureHistory("Add barcode");
     const layerId = `lyr_${crypto.randomUUID()}`;
+    const itemWidth = 54;
+    const itemHeight = 18;
+    const position = getNextInsertPosition(currentSurface, itemWidth, itemHeight);
     updateCurrentSurface((surface) => ({
       ...surface,
       layers: [
@@ -974,10 +1237,10 @@ export const DesignerApp = () => {
           name: `Barcode ${surface.layers.length + 1}`,
           visible: true,
           locked: false,
-          x: 18,
-          y: 18 + surface.layers.length * 8,
-          width: 54,
-          height: 18,
+          x: position.x,
+          y: position.y,
+          width: itemWidth,
+          height: itemHeight,
           rotation: 0,
           opacity: 1,
           metadata: {
@@ -990,68 +1253,144 @@ export const DesignerApp = () => {
     setSelectedLayerId(layerId);
   };
 
-  const createDemoAsset = async () => {
-    if (!project || !currentSurface || !draftDocument) {
+  const addTableBlock = () => {
+    if (!currentSurface) {
       return;
     }
     setContextMenu(null);
-    captureHistory("Add sample image");
-    setSaving(true);
-    try {
-      const response = await fetch(resolveApiUrl("/v1/assets"), {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          filename: `demo-${project.id}.png`,
-          kind: "image",
-          mimeType: "image/png",
-          widthPx: 1800,
-          heightPx: 1200
-        })
+    captureHistory("Add table");
+    const groupId = `lyr_${crypto.randomUUID()}`;
+    const tableWidth = Math.max(64, Math.min(currentSurface.safeBox.width - 6, 92));
+    const rowHeight = 12;
+    const headerHeight = 14;
+    const tableHeight = headerHeight + rowHeight * 3;
+    const position = getNextInsertPosition(currentSurface, tableWidth, tableHeight);
+    const childBaseX = position.x;
+    const childBaseY = position.y;
+    const children: DesignerLayer[] = [
+      {
+        id: `lyr_${crypto.randomUUID()}`,
+        type: "shape",
+        name: "Table background",
+        visible: true,
+        locked: false,
+        x: childBaseX,
+        y: childBaseY,
+        width: tableWidth,
+        height: tableHeight,
+        rotation: 0,
+        opacity: 1,
+        metadata: { fill: "#ffffff" }
+      },
+      {
+        id: `lyr_${crypto.randomUUID()}`,
+        type: "shape",
+        name: "Table header",
+        visible: true,
+        locked: false,
+        x: childBaseX,
+        y: childBaseY,
+        width: tableWidth,
+        height: headerHeight,
+        rotation: 0,
+        opacity: 1,
+        metadata: { fill: "#dfe8f6" }
+      },
+      {
+        id: `lyr_${crypto.randomUUID()}`,
+        type: "text",
+        name: "Table title",
+        visible: true,
+        locked: false,
+        x: childBaseX + 4,
+        y: childBaseY + 3,
+        width: tableWidth - 8,
+        height: 8,
+        rotation: 0,
+        opacity: 1,
+        metadata: { text: "Table", fontSize: 12, fontWeight: "700", textTransform: "none" }
+      }
+    ];
+
+    Array.from({ length: 2 }).forEach((_, index) => {
+      children.push({
+        id: `lyr_${crypto.randomUUID()}`,
+        type: "shape",
+        name: `Table divider ${index + 1}`,
+        visible: true,
+        locked: false,
+        x: childBaseX,
+        y: childBaseY + headerHeight + rowHeight * (index + 1),
+        width: tableWidth,
+        height: 1,
+        rotation: 0,
+        opacity: 1,
+        metadata: { variant: "divider", fill: "#d7dee9" }
       });
-      const asset = await readJson<AssetRecord>(response);
-      setAssets((currentAssets) => [asset, ...currentAssets]);
-      const layerId = `lyr_${crypto.randomUUID()}`;
-      const imageSize = getImageLayerSize(currentSurface);
-      const alreadyLinked = draftDocument.assets.some((entry) => entry.assetId === asset.id);
-      updateDraftDocument((document) => ({
-        ...document,
-        assets: alreadyLinked ? document.assets : [...document.assets, { assetId: asset.id, role: "source" }],
-        surfaces: document.surfaces.map((surface, index) =>
-          index === selectedSurfaceIndex
-            ? {
-                ...surface,
-                layers: [
-                  ...surface.layers,
-                  {
-                    id: layerId,
-                    type: "image",
-                    name: `Image ${surface.layers.length + 1}`,
-                    visible: true,
-                    locked: false,
-                    x: Math.round((surface.safeBox.x + 4) * 10) / 10,
-                    y: Math.round((surface.safeBox.y + 4) * 10) / 10,
-                    width: imageSize.width,
-                    height: imageSize.height,
-                    rotation: 0,
-                    opacity: 1,
-                    metadata: {
-                      assetId: asset.id,
-                      fitMode: "cover"
-                    }
-                  }
-                ]
-              }
-            : surface
-        )
-      }));
-      setSelectedLayerIds([layerId]);
-      setSelectedLayerId(layerId);
-    } finally {
-      setSaving(false);
-    }
+    });
+
+    Array.from({ length: 3 }).forEach((_, index) => {
+      const rowY = childBaseY + headerHeight + rowHeight * index + 2;
+      children.push(
+        {
+          id: `lyr_${crypto.randomUUID()}`,
+          type: "text",
+          name: `Label ${index + 1}`,
+          visible: true,
+          locked: false,
+          x: childBaseX + 4,
+          y: rowY,
+          width: tableWidth * 0.55,
+          height: 8,
+          rotation: 0,
+          opacity: 1,
+          metadata: { text: `Row ${index + 1}`, fontSize: 10, fontWeight: "500", textTransform: "none" }
+        },
+        {
+          id: `lyr_${crypto.randomUUID()}`,
+          type: "text",
+          name: `Value ${index + 1}`,
+          visible: true,
+          locked: false,
+          x: childBaseX + tableWidth * 0.62,
+          y: rowY,
+          width: tableWidth * 0.3,
+          height: 8,
+          rotation: 0,
+          opacity: 1,
+          metadata: {
+            text: `Value ${index + 1}`,
+            fontSize: 10,
+            fontWeight: "600",
+            textAlign: "right",
+            textTransform: "none"
+          }
+        }
+      );
+    });
+
+    updateCurrentSurface((surface) => ({
+      ...surface,
+      layers: [
+        ...surface.layers,
+        {
+          id: groupId,
+          type: "group",
+          name: `Table ${surface.layers.length + 1}`,
+          visible: true,
+          locked: false,
+          x: position.x,
+          y: position.y,
+          width: tableWidth,
+          height: tableHeight,
+          rotation: 0,
+          opacity: 1,
+          metadata: { children }
+        }
+      ]
+    }));
+    setSelectedLayerIds([groupId]);
+    setSelectedLayerId(groupId);
   };
 
   const openFilePicker = (mode: "insert" | "replace" = "insert") => {
@@ -1125,6 +1464,7 @@ export const DesignerApp = () => {
       } else {
         const layerId = `lyr_${crypto.randomUUID()}`;
         const imageSize = getImageLayerSize(currentSurface);
+        const position = getNextInsertPosition(currentSurface, imageSize.width, imageSize.height);
         updateDraftDocument((document) => ({
           ...document,
           assets: alreadyLinked ? document.assets : [...document.assets, { assetId: asset.id, role: "source" }],
@@ -1140,8 +1480,8 @@ export const DesignerApp = () => {
                       name: file.name,
                       visible: true,
                       locked: false,
-                      x: Math.round((surface.safeBox.x + 4) * 10) / 10,
-                      y: Math.round((surface.safeBox.y + 4) * 10) / 10,
+                      x: position.x,
+                      y: position.y,
                       width: imageSize.width,
                       height: imageSize.height,
                       rotation: 0,
@@ -1172,6 +1512,7 @@ export const DesignerApp = () => {
     }
     setContextMenu(null);
     captureHistory("Delete item");
+    const nextLayersResult = removeLayerFromTree(currentSurface.layers, selectedLayerId);
     updateDraftDocument((document) =>
       pruneUnusedDocumentAssets({
         ...document,
@@ -1179,13 +1520,13 @@ export const DesignerApp = () => {
           index === selectedSurfaceIndex
             ? {
                 ...surface,
-                layers: surface.layers.filter((layer) => layer.id !== selectedLayerId)
+                layers: removeLayerFromTree(surface.layers, selectedLayerId).layers
               }
             : surface
         )
       })
     );
-    const nextLayerId = currentSurface.layers.find((layer) => layer.id !== selectedLayerId)?.id ?? null;
+    const nextLayerId = flattenLayerTree(nextLayersResult.layers)[0]?.id ?? null;
     setSelectedLayerIds(nextLayerId ? [nextLayerId] : []);
     setSelectedLayerId(nextLayerId);
   };
@@ -1197,6 +1538,10 @@ export const DesignerApp = () => {
     const selectedSet = new Set(selectedLayerIds);
     setContextMenu(null);
     captureHistory(selectedLayerIds.length > 1 ? "Delete selection" : "Delete item");
+    const nextLayers = selectedLayerIds.reduce(
+      (layers, layerId) => removeLayerFromTree(layers, layerId).layers,
+      currentSurface.layers
+    );
     updateDraftDocument((document) =>
       pruneUnusedDocumentAssets({
         ...document,
@@ -1204,14 +1549,45 @@ export const DesignerApp = () => {
           index === selectedSurfaceIndex
             ? {
                 ...surface,
-                layers: surface.layers.filter((layer) => !selectedSet.has(layer.id))
+                layers: selectedLayerIds.reduce(
+                  (layers, layerId) => removeLayerFromTree(layers, layerId).layers,
+                  surface.layers
+                )
               }
             : surface
         )
       })
     );
-    setSelectedLayerIds([]);
-    setSelectedLayerId(null);
+    const nextLayerId = flattenLayerTree(nextLayers)[0]?.id ?? null;
+    setSelectedLayerIds(nextLayerId ? [nextLayerId] : []);
+    setSelectedLayerId(nextLayerId);
+  };
+
+  const deleteAssetFromLibrary = async (assetId: string) => {
+    setAssetContextMenu(null);
+    if (!window.confirm("Delete this upload from the asset library?")) {
+      return;
+    }
+    await fetch(resolveApiUrl(`/v1/assets/${assetId}`), {
+      method: "DELETE",
+      credentials: "include"
+    });
+    setAssets((currentAssets) => currentAssets.filter((asset) => asset.id !== assetId));
+    setLocalAssetUrls((currentUrls) => {
+      const nextUrls = { ...currentUrls };
+      delete nextUrls[assetId];
+      return nextUrls;
+    });
+    updateDraftDocument((document) =>
+      pruneUnusedDocumentAssets({
+        ...document,
+        assets: document.assets.filter((asset) => asset.assetId !== assetId),
+        surfaces: document.surfaces.map((surface) => ({
+          ...surface,
+          layers: surface.layers.filter((layer) => String(layer.metadata.assetId ?? "") !== assetId)
+        }))
+      })
+    );
   };
 
   const duplicateSelectedLayer = () => {
@@ -1307,14 +1683,38 @@ export const DesignerApp = () => {
     });
   };
 
+  const moveLayerIntoGroup = (fromLayerId: string, targetGroupId: string) => {
+    if (!currentSurface || fromLayerId === targetGroupId) {
+      return;
+    }
+    const sourceLayer = findLayerInTree(currentSurface.layers, fromLayerId)?.layer ?? null;
+    const targetLayer = findLayerInTree(currentSurface.layers, targetGroupId)?.layer ?? null;
+    if (!sourceLayer || !targetLayer || targetLayer.type !== "group") {
+      return;
+    }
+    captureHistory("Move item into group");
+    updateCurrentSurface((surface) => {
+      const removalResult = removeLayerFromTree(surface.layers, fromLayerId);
+      return {
+        ...surface,
+        layers: insertLayerIntoGroupTree(removalResult.layers, targetGroupId, sourceLayer)
+      };
+    });
+    setExpandedGroupIds((currentIds) => (currentIds.includes(targetGroupId) ? currentIds : [...currentIds, targetGroupId]));
+    setSelectedLayerIds([targetGroupId]);
+    setSelectedLayerId(targetGroupId);
+  };
+
   const placeExistingAsset = (asset: AssetRecord) => {
     if (!currentSurface) {
       return;
     }
+    setAssetContextMenu(null);
     setContextMenu(null);
     captureHistory("Place existing image");
     const layerId = `lyr_${crypto.randomUUID()}`;
     const imageSize = getImageLayerSize(currentSurface);
+    const position = getNextInsertPosition(currentSurface, imageSize.width, imageSize.height);
     updateDraftDocument((document) => {
       const alreadyLinked = document.assets.some((entry) => entry.assetId === asset.id);
       return {
@@ -1332,8 +1732,8 @@ export const DesignerApp = () => {
                     name: asset.filename,
                     visible: true,
                     locked: false,
-                    x: Math.round((surface.safeBox.x + 4) * 10) / 10,
-                    y: Math.round((surface.safeBox.y + 4) * 10) / 10,
+                    x: position.x,
+                    y: position.y,
                     width: imageSize.width,
                     height: imageSize.height,
                     rotation: 0,
@@ -1351,6 +1751,45 @@ export const DesignerApp = () => {
     });
     setSelectedLayerIds([layerId]);
     setSelectedLayerId(layerId);
+  };
+
+  const beginInlineTextEdit = (layer: DesignerLayer) => {
+    if (!isEditableProject || layer.type !== "text" || layer.locked) {
+      return;
+    }
+    setSelectedLayerIds([layer.id]);
+    setSelectedLayerId(layer.id);
+    setEditingTextLayerId(layer.id);
+    setEditingTextValue(String(layer.metadata.text ?? ""));
+  };
+
+  const commitInlineTextEdit = () => {
+    if (!editingTextLayerId) {
+      return;
+    }
+    const nextValue = editingTextValue;
+    captureHistory("Edit text on canvas");
+    updateCurrentSurface((surface) => ({
+      ...surface,
+      layers: surface.layers.map((layer) =>
+        layer.id === editingTextLayerId && layer.type === "text"
+          ? {
+              ...layer,
+              metadata: {
+                ...layer.metadata,
+                text: nextValue
+              }
+            }
+          : layer
+      )
+    }));
+    setEditingTextLayerId(null);
+    setEditingTextValue("");
+  };
+
+  const cancelInlineTextEdit = () => {
+    setEditingTextLayerId(null);
+    setEditingTextValue("");
   };
 
   const groupSelectedLayers = () => {
@@ -1690,21 +2129,6 @@ export const DesignerApp = () => {
     }
   };
 
-  const closeWorkspace = () => {
-    if (isEmbedded) {
-      window.parent.postMessage(
-        {
-          type: "flow2print:close",
-          projectId: project?.id ?? null,
-          status: project?.status ?? null
-        },
-        "*"
-      );
-      return;
-    }
-    window.location.href = resolveDesignerUrl("/designer");
-  };
-
   const openExportPanel = () => {
     setRightPanel("finish");
   };
@@ -1902,6 +2326,202 @@ export const DesignerApp = () => {
     }
 
     if (leftPanel === "layers") {
+      const renderLayerRows = (layers: DesignerLayer[], depth = 0): React.ReactNode =>
+        layers.map((layer) => {
+          const isGroup = layer.type === "group";
+          const childLayers = getGroupChildren(layer);
+          const isExpanded = expandedGroupIds.includes(layer.id);
+
+          return (
+            <div key={layer.id} className="layer-tree__node">
+              <div
+                className={`layer-row ${selectedLayerIds.includes(layer.id) ? "layer-row--active" : ""} ${
+                  draggingLayerId === layer.id ? "layer-row--dragging" : ""
+                } ${dropTargetLayerId === layer.id ? "layer-row--drop-target" : ""}`}
+                style={{ paddingLeft: `${16 + depth * 18}px` }}
+                onClick={(event) => {
+                  handleLayerSelection(layer.id, event.shiftKey || event.metaKey || event.ctrlKey);
+                }}
+                onContextMenu={(event) => openLayerContextMenu(event, layer.id)}
+                role="button"
+                tabIndex={0}
+                draggable={isEditableProject}
+                onDragStart={(event) => {
+                  if (!isEditableProject) {
+                    return;
+                  }
+                  setDraggingLayerId(layer.id);
+                  setDropTargetLayerId(layer.id);
+                  event.dataTransfer.effectAllowed = "move";
+                  event.dataTransfer.setData("text/plain", layer.id);
+                }}
+                onDragOver={(event) => {
+                  if (!isEditableProject || !draggingLayerId) {
+                    return;
+                  }
+                  event.preventDefault();
+                  setDropTargetLayerId(layer.id);
+                }}
+                onDrop={(event) => {
+                  if (!isEditableProject) {
+                    return;
+                  }
+                  event.preventDefault();
+                  const fromLayerId = event.dataTransfer.getData("text/plain") || draggingLayerId;
+                  if (fromLayerId) {
+                    if (isGroup) {
+                      moveLayerIntoGroup(fromLayerId, layer.id);
+                    } else if (depth === 0) {
+                      reorderLayer(fromLayerId, layer.id);
+                    }
+                  }
+                  setDraggingLayerId(null);
+                  setDropTargetLayerId(null);
+                }}
+                onDragEnd={() => {
+                  setDraggingLayerId(null);
+                  setDropTargetLayerId(null);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    handleLayerSelection(layer.id);
+                  }
+                }}
+              >
+                {isGroup ? (
+                  <button
+                    type="button"
+                    className="layer-row__expander"
+                    aria-label={isExpanded ? "Collapse group" : "Expand group"}
+                    onPointerDown={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                    }}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      setExpandedGroupIds((currentIds) =>
+                        currentIds.includes(layer.id)
+                          ? currentIds.filter((entry) => entry !== layer.id)
+                          : [...currentIds, layer.id]
+                      );
+                    }}
+                  >
+                    <span className="material-symbols-outlined" aria-hidden="true">
+                      {isExpanded ? "expand_more" : "chevron_right"}
+                    </span>
+                  </button>
+                ) : (
+                  <span className="layer-row__expander-placeholder" aria-hidden="true" />
+                )}
+                <span className={`layer-row__preview layer-row__preview--${layer.type}`}>
+                  <span className="material-symbols-outlined" aria-hidden="true">
+                    {layerPreviewIcon(layer)}
+                  </span>
+                </span>
+                <span className="layer-row__content">
+                  <strong>{layer.name}</strong>
+                  <small>
+                    {layer.type}
+                    {isGroup ? ` • ${childLayers.length} items` : ""}
+                  </small>
+                </span>
+                <div className="layer-row__actions">
+                  <button
+                    type="button"
+                    className={`icon-button ${layer.visible ? "" : "icon-button--muted"}`}
+                    aria-label={layer.visible ? "Hide layer" : "Show layer"}
+                    title={layer.visible ? "Hide layer" : "Show layer"}
+                    onPointerDown={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      if (!isEditableProject) {
+                        return;
+                      }
+                      setSelectedLayerIds([layer.id]);
+                      setSelectedLayerId(layer.id);
+                      captureHistory("Toggle visibility");
+                      updateDraftDocument((document) => ({
+                        ...document,
+                        surfaces: document.surfaces.map((surface, surfaceIndex) =>
+                          surfaceIndex === selectedSurfaceIndex
+                            ? {
+                                ...surface,
+                                layers: updateLayerTree(surface.layers, layer.id, (surfaceLayer) => ({
+                                  ...surfaceLayer,
+                                  visible: !surfaceLayer.visible
+                                }))
+                              }
+                            : surface
+                        )
+                      }));
+                    }}
+                  >
+                    <span className="material-symbols-outlined" aria-hidden="true">
+                      {layer.visible ? "visibility" : "visibility_off"}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`icon-button ${layer.locked ? "icon-button--danger" : ""}`}
+                    aria-label={layer.locked ? "Unlock layer" : "Lock layer"}
+                    title={layer.locked ? "Unlock layer" : "Lock layer"}
+                    onPointerDown={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      if (!isEditableProject) {
+                        return;
+                      }
+                      setSelectedLayerIds([layer.id]);
+                      setSelectedLayerId(layer.id);
+                      captureHistory("Toggle lock");
+                      updateDraftDocument((document) => ({
+                        ...document,
+                        surfaces: document.surfaces.map((surface, surfaceIndex) =>
+                          surfaceIndex === selectedSurfaceIndex
+                            ? {
+                                ...surface,
+                                layers: updateLayerTree(surface.layers, layer.id, (surfaceLayer) => ({
+                                  ...surfaceLayer,
+                                  locked: !surfaceLayer.locked
+                                }))
+                              }
+                            : surface
+                        )
+                      }));
+                    }}
+                  >
+                    <span className="material-symbols-outlined" aria-hidden="true">
+                      {layer.locked ? "lock" : "lock_open"}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    className="icon-button"
+                    aria-label={`More actions for ${layer.name}`}
+                    title={`More actions for ${layer.name}`}
+                    onPointerDown={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                    }}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      openLayerContextMenuFromElement(event.currentTarget, layer.id);
+                    }}
+                  >
+                    <span className="material-symbols-outlined" aria-hidden="true">
+                      more_horiz
+                    </span>
+                  </button>
+                </div>
+              </div>
+              {isGroup && isExpanded ? <div className="layer-tree__children">{renderLayerRows(childLayers, depth + 1)}</div> : null}
+            </div>
+          );
+        });
+
       return (
         <DesignerNavigatorPanel
           title="Layers"
@@ -1937,6 +2557,18 @@ export const DesignerApp = () => {
                   <button
                     type="button"
                     className="icon-button"
+                    title="Ungroup selection"
+                    aria-label="Ungroup selection"
+                    onClick={ungroupSelectedLayer}
+                    disabled={!canUngroupSelection}
+                  >
+                    <span className="material-symbols-outlined" aria-hidden="true">
+                      layers_clear
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    className="icon-button"
                     title="Delete selection"
                     aria-label="Delete selection"
                     onClick={deleteSelectedLayers}
@@ -1954,147 +2586,7 @@ export const DesignerApp = () => {
           <>
             <div className="layer-list">
               {currentSurface.layers.length === 0 ? <div className="empty-state">No items on this side yet.</div> : null}
-              {currentSurface.layers.map((layer) => (
-                <div
-                  key={layer.id}
-                  className={`layer-row ${layer.id === selectedLayerId ? "layer-row--active" : ""} ${
-                    draggingLayerId === layer.id ? "layer-row--dragging" : ""
-                  } ${dropTargetLayerId === layer.id ? "layer-row--drop-target" : ""}`}
-                  onClick={(event) => {
-                    handleLayerSelection(layer.id, event.shiftKey || event.metaKey || event.ctrlKey);
-                  }}
-                  onContextMenu={(event) => openLayerContextMenu(event, layer.id)}
-                  role="button"
-                  tabIndex={0}
-                  draggable={isEditableProject}
-                  onDragStart={(event) => {
-                    if (!isEditableProject) {
-                      return;
-                    }
-                    setDraggingLayerId(layer.id);
-                    setDropTargetLayerId(layer.id);
-                    event.dataTransfer.effectAllowed = "move";
-                    event.dataTransfer.setData("text/plain", layer.id);
-                  }}
-                  onDragOver={(event) => {
-                    if (!isEditableProject || !draggingLayerId) {
-                      return;
-                    }
-                    event.preventDefault();
-                    setDropTargetLayerId(layer.id);
-                  }}
-                  onDrop={(event) => {
-                    if (!isEditableProject) {
-                      return;
-                    }
-                    event.preventDefault();
-                    const fromLayerId = event.dataTransfer.getData("text/plain") || draggingLayerId;
-                    if (fromLayerId) {
-                      reorderLayer(fromLayerId, layer.id);
-                    }
-                    setDraggingLayerId(null);
-                    setDropTargetLayerId(null);
-                  }}
-                  onDragEnd={() => {
-                    setDraggingLayerId(null);
-                    setDropTargetLayerId(null);
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      handleLayerSelection(layer.id);
-                    }
-                  }}
-                >
-                  <span className={`layer-row__preview layer-row__preview--${layer.type}`}>
-                    <span className="material-symbols-outlined" aria-hidden="true">
-                      {layerPreviewIcon(layer)}
-                    </span>
-                  </span>
-                  <span className="layer-row__content">
-                    <strong>{layer.name}</strong>
-                    <small>{layer.type}</small>
-                  </span>
-                  <div className="layer-row__actions">
-                    <button
-                      type="button"
-                      className={`icon-button ${layer.visible ? "" : "icon-button--muted"}`}
-                      aria-label={layer.visible ? "Hide layer" : "Show layer"}
-                      title={layer.visible ? "Hide layer" : "Show layer"}
-                      onPointerDown={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        if (!isEditableProject) {
-                          return;
-                        }
-                        setSelectedLayerIds([layer.id]);
-                        setSelectedLayerId(layer.id);
-                        captureHistory("Toggle visibility");
-                        updateDraftDocument((document) => ({
-                          ...document,
-                          surfaces: document.surfaces.map((surface, surfaceIndex) =>
-                            surfaceIndex === selectedSurfaceIndex
-                              ? {
-                                  ...surface,
-                                  layers: surface.layers.map((surfaceLayer) =>
-                                    surfaceLayer.id === layer.id
-                                      ? {
-                                          ...surfaceLayer,
-                                          visible: !surfaceLayer.visible
-                                        }
-                                      : surfaceLayer
-                                  )
-                                }
-                              : surface
-                          )
-                        }));
-                      }}
-                    >
-                      <span className="material-symbols-outlined" aria-hidden="true">
-                        {layer.visible ? "visibility" : "visibility_off"}
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      className={`icon-button ${layer.locked ? "icon-button--muted" : ""}`}
-                      aria-label={layer.locked ? "Unlock layer" : "Lock layer"}
-                      title={layer.locked ? "Unlock layer" : "Lock layer"}
-                      onPointerDown={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        if (!isEditableProject) {
-                          return;
-                        }
-                        setSelectedLayerIds([layer.id]);
-                        setSelectedLayerId(layer.id);
-                        captureHistory("Toggle lock");
-                        updateDraftDocument((document) => ({
-                          ...document,
-                          surfaces: document.surfaces.map((surface, surfaceIndex) =>
-                            surfaceIndex === selectedSurfaceIndex
-                              ? {
-                                  ...surface,
-                                  layers: surface.layers.map((surfaceLayer) =>
-                                    surfaceLayer.id === layer.id
-                                      ? {
-                                          ...surfaceLayer,
-                                          locked: !surfaceLayer.locked
-                                        }
-                                      : surfaceLayer
-                                  )
-                                }
-                              : surface
-                          )
-                        }));
-                      }}
-                    >
-                      <span className="material-symbols-outlined" aria-hidden="true">
-                        {layer.locked ? "lock" : "lock_open"}
-                      </span>
-                    </button>
-                  </div>
-                </div>
-              ))}
+              {renderLayerRows(currentSurface.layers)}
             </div>
           </>
           }
@@ -2109,6 +2601,11 @@ export const DesignerApp = () => {
           searchQuery={assetSearchQuery}
           onSearchQueryChange={setAssetSearchQuery}
           onUpload={() => openFilePicker("insert")}
+          onOpenAssetMenu={(event, assetId) => {
+            event.preventDefault();
+            event.stopPropagation();
+            openAssetContextMenuFromElement(event.currentTarget, assetId);
+          }}
           onUseAsset={(assetId) => {
             const asset = availableImageAssets.find((entry) => entry.id === assetId);
             if (asset) {
@@ -2126,7 +2623,10 @@ export const DesignerApp = () => {
         templateName={currentTemplate?.displayName ?? "Blank start"}
         hasUnsavedChanges={hasUnsavedChanges}
         undoCount={historyPast.length}
+        redoCount={historyFuture.length}
         entries={recentHistoryEntries}
+        onUndo={undoChange}
+        onRedo={redoChange}
         onRestore={restoreHistoryEntry}
         onClear={clearHistory}
       />
@@ -2150,13 +2650,10 @@ export const DesignerApp = () => {
             </span>
           }
           statusLine={
-            <>
-              <span className="workspace-statusline__label">Status:</span>
-              <span className={`status-pill ${saving ? "status-pill--working" : hasUnsavedChanges ? "status-pill--warning" : "status-pill--saved"}`}>
-                <span className="status-pill__dot" aria-hidden="true" />
-                {saving ? "Saving" : hasUnsavedChanges ? "Unsaved" : "Saved"}
-              </span>
-            </>
+            <span className={`status-pill ${saving ? "status-pill--working" : hasUnsavedChanges ? "status-pill--warning" : "status-pill--saved"}`}>
+              <span className="status-pill__dot" aria-hidden="true" />
+              {saving ? "Saving" : hasUnsavedChanges ? "Unsaved changes" : "All changes saved"}
+            </span>
           }
           mode={rightPanel}
           onModeChange={setRightPanel}
@@ -2260,6 +2757,7 @@ export const DesignerApp = () => {
               onAddText={addTextLayer}
               onAddImage={() => openFilePicker("insert")}
               onAddShape={addShapeLayer}
+              onAddDivider={() => addShapeLayer("divider")}
               onOpenMenu={() => setOverlay("menu")}
             />
           ) : null}
@@ -2268,16 +2766,17 @@ export const DesignerApp = () => {
             <aside className="workspace-sidebar workspace-sidebar--navigator">{renderNavigatorContent()}</aside>
           ) : null}
 
-          <section className="workspace-stage workspace-stage--primary">
+          <section
+            className={`workspace-stage workspace-stage--primary ${
+              isEditableProject && rightPanel === "edit" ? "workspace-stage--editing" : ""
+            }`}
+          >
             <div className="stage-header stage-header--editor">
               <div className="stage-header__crumbs">
-                <span>Workspace /</span>
-                <h2>
-                  {currentSurface.label} ({currentSurface.artboard.width}×{currentSurface.artboard.height}mm)
-                </h2>
-              </div>
-              <div className="badge-row">
-                <span className="badge badge--neutral">{currentSurface.layers.length} items on canvas</span>
+                <h2>{currentSurface.label}</h2>
+                <p className="stage-header__meta">
+                  {currentSurface.artboard.width} × {currentSurface.artboard.height} mm
+                </p>
               </div>
             </div>
             {hasBlockingIssues && !isBlankSurface && rightPanel !== "review" ? (
@@ -2406,7 +2905,11 @@ export const DesignerApp = () => {
                   </button>
                 </div>
               ) : null}
-              <div className="artboard-shell">
+              <div
+                ref={stageViewportRef}
+                className={`artboard-shell ${panMode ? "artboard-shell--pan" : ""}`}
+                onPointerDown={startStagePan}
+              >
                 <div
                   className={`artboard ${gridEnabled ? "" : "artboard--gridless"}`}
                   style={{
@@ -2414,10 +2917,38 @@ export const DesignerApp = () => {
                     height: currentSurface.artboard.height * effectiveScale
                   }}
                   onClick={() => {
+                    if (panMode) {
+                      return;
+                    }
                     setSelectedLayerIds([]);
                     setSelectedLayerId(null);
                   }}
                 >
+                  {gridEnabled ? <div className="artboard__grid" aria-hidden="true" /> : null}
+                  {guidesVisible ? (
+                    <>
+                      <div
+                        className="artboard__bleed"
+                        aria-hidden="true"
+                        style={{
+                          left: currentSurface.bleedBox.x * effectiveScale,
+                          top: currentSurface.bleedBox.y * effectiveScale,
+                          width: currentSurface.bleedBox.width * effectiveScale,
+                          height: currentSurface.bleedBox.height * effectiveScale
+                        }}
+                      />
+                      <div
+                        className="artboard__safe"
+                        aria-hidden="true"
+                        style={{
+                          left: currentSurface.safeBox.x * effectiveScale,
+                          top: currentSurface.safeBox.y * effectiveScale,
+                          width: currentSurface.safeBox.width * effectiveScale,
+                          height: currentSurface.safeBox.height * effectiveScale
+                        }}
+                      />
+                    </>
+                  ) : null}
                   {currentSurface.layers.length === 0 ? (
                     <div className="artboard__empty">
                       <strong>Start this side</strong>
@@ -2431,6 +2962,13 @@ export const DesignerApp = () => {
                       selectedLayerIds={selectedLayerIds}
                       assetUrls={localAssetUrls}
                       onSelectLayerIds={selectLayerIds}
+                      onOpenLayerContextMenu={(event, layer) => openLayerContextMenu(event, layer.id)}
+                      editingTextLayerId={editingTextLayerId}
+                      editingTextValue={editingTextValue}
+                      onBeginTextEdit={beginInlineTextEdit}
+                      onEditTextValueChange={setEditingTextValue}
+                      onCommitTextEdit={commitInlineTextEdit}
+                      onCancelTextEdit={cancelInlineTextEdit}
                     />
                   ) : null}
                   <FabricCanvasStage
@@ -2447,6 +2985,7 @@ export const DesignerApp = () => {
                     isEditable={isStageEditable}
                     selectedLayerIds={selectedLayerIds}
                     onSelectionChange={selectLayerIds}
+                    onOpenLayerContextMenu={openLayerContextMenuAt}
                     onSurfaceChange={(nextSurface, historyLabel) => {
                       captureHistory(historyLabel);
                       updateCurrentSurface(() => nextSurface);
@@ -2455,12 +2994,21 @@ export const DesignerApp = () => {
                 </div>
               </div>
               <div className="canvas-dock" aria-label="Canvas controls">
+                <button type="button" className="canvas-dock__button" onClick={() => setZoom((value) => clamp(value - 0.1, 0.5, 2))}>
+                  <span className="material-symbols-outlined" aria-hidden="true">
+                    zoom_out
+                  </span>
+                </button>
                 <button type="button" className="canvas-dock__button" onClick={() => setZoom((value) => clamp(value + 0.1, 0.5, 2))}>
                   <span className="material-symbols-outlined" aria-hidden="true">
                     zoom_in
                   </span>
                 </button>
-                <button type="button" className="canvas-dock__button" onClick={() => setGuidesVisible((value) => !value)}>
+                <button
+                  type="button"
+                  className={`canvas-dock__button ${panMode ? "canvas-dock__button--active" : ""}`}
+                  onClick={() => setPanMode((value) => !value)}
+                >
                   <span className="material-symbols-outlined" aria-hidden="true">
                     pan_tool
                   </span>
@@ -2556,16 +3104,6 @@ export const DesignerApp = () => {
             </DesignerInspectorPanel>
           </aside>
         </section>
-        <footer className="workspace-footer">
-          <div className="workspace-footer__group">
-            <span>X: {Math.round(selectedLayer?.x ?? 0)}px</span>
-            <span>Y: {Math.round(selectedLayer?.y ?? 0)}px</span>
-          </div>
-          <div className="workspace-footer__group">
-            <span>{project.externalProductRef.replace("SKU-", "").replaceAll("-", " ")}</span>
-            <span className="workspace-footer__status">Press-ready: PDF/X-1a</span>
-          </div>
-        </footer>
         <input
           ref={fileInputRef}
           className="visually-hidden"
@@ -2595,7 +3133,7 @@ export const DesignerApp = () => {
                   : leftPanel === "assets"
                     ? "Assets"
                   : "History"
-                : "Workspace options"
+                : "Elemente"
         }
         description={
           overlay === "templates"
@@ -2604,7 +3142,7 @@ export const DesignerApp = () => {
               ? "Open another saved project."
               : overlay === "navigator"
                 ? "Support panels that stay out of the main design area."
-              : "Project and setup actions that are not part of the canvas."
+              : ""
         }
         onClose={() => setOverlay(null)}
       >
@@ -2663,106 +3201,43 @@ export const DesignerApp = () => {
           {overlay === "navigator" ? <div className="workspace-overlay__content">{renderNavigatorContent()}</div> : null}
 
           {overlay === "menu" ? (
-            <div className="workspace-menu-grid">
-              <article className="template-card">
-                <div>
-                  <h3>Add more</h3>
-                  <p>Insert less common content on the current side.</p>
-                </div>
-                <div className="product-actions">
-                  <button
-                    type="button"
-                    className="button--ghost"
-                    onClick={() => {
-                      addQrLayer();
-                      setOverlay(null);
-                    }}
-                    disabled={!isEditableProject}
-                  >
-                    QR code
-                  </button>
-                  <button
-                    type="button"
-                    className="button--ghost"
-                    onClick={() => {
-                      addBarcodeLayer();
-                      setOverlay(null);
-                    }}
-                    disabled={!isEditableProject}
-                  >
-                    Barcode
-                  </button>
-                  <button
-                    type="button"
-                    className="button--ghost"
-                    onClick={() => {
-                      void createDemoAsset();
-                      setOverlay(null);
-                    }}
-                    disabled={!isEditableProject || saving}
-                  >
-                    Sample image
-                  </button>
-                </div>
-              </article>
-              <article className="template-card">
-                <div>
-                  <h3>Project</h3>
-                  <p>Switch project or leave the workspace.</p>
-                </div>
-                <div className="product-actions">
-                  <button type="button" className="button--ghost" onClick={() => setOverlay("projects")}>
-                    Open project
-                  </button>
-                  <button type="button" className="button--ghost" onClick={closeWorkspace}>
-                    {isEmbedded ? "Done" : "Close"}
-                  </button>
-                </div>
-              </article>
-              <article className="template-card">
-                <div>
-                  <h3>Template</h3>
-                  <p>{currentTemplate?.displayName ?? "Blank layout"}</p>
-                </div>
-                <div className="product-actions">
-                  <button type="button" className="button--ghost" onClick={() => setOverlay("templates")} disabled={templateBusy}>
-                    {templateBusy ? "Changing..." : "Change template"}
-                  </button>
-                  <button
-                    type="button"
-                    className="button--ghost"
-                    onClick={() => {
-                      setLeftPanel("layers");
-                      setOverlay("navigator");
-                    }}
-                  >
-                    Open layers
-                  </button>
-                </div>
-              </article>
-              <article className="template-card">
-                <div>
-                  <h3>Canvas view</h3>
-                  <p>Show layout guides and snapping helpers.</p>
-                </div>
-                <div className="product-actions">
-                  <button
-                    type="button"
-                    className={`button--ghost ${gridEnabled ? "toggle-active" : ""}`}
-                    onClick={() => setGridEnabled((value) => !value)}
-                  >
-                    {gridEnabled ? "Hide grid" : "Show grid"}
-                  </button>
-                  <button
-                    type="button"
-                    className={`button--ghost ${snapEnabled ? "toggle-active" : ""}`}
-                    onClick={() => setSnapEnabled((value) => !value)}
-                  >
-                    {snapEnabled ? "Turn snap off" : "Turn snap on"}
-                  </button>
-                </div>
-              </article>
-            </div>
+            <DesignerMoreElementsPanel
+              elements={[
+                {
+                  id: "qr",
+                  label: "QR Code",
+                  description: "Add a scannable block for links, menus, or product journeys.",
+                  icon: "qr_code_2",
+                  disabled: !isEditableProject,
+                  onSelect: () => {
+                    addQrLayer();
+                    setOverlay(null);
+                  }
+                },
+                {
+                  id: "barcode",
+                  label: "Bar Code",
+                  description: "Insert a barcode for labels, tickets, or retail packaging.",
+                  icon: "barcode",
+                  disabled: !isEditableProject,
+                  onSelect: () => {
+                    addBarcodeLayer();
+                    setOverlay(null);
+                  }
+                },
+                {
+                  id: "table",
+                  label: "Tabelle",
+                  description: "Place a structured table block for specs, menus, or pricing.",
+                  icon: "table_rows",
+                  disabled: !isEditableProject,
+                  onSelect: () => {
+                    addTableBlock();
+                    setOverlay(null);
+                  }
+                }
+              ]}
+            />
           ) : null}
       </DesignerOverlay>
     );
@@ -2781,6 +3256,10 @@ export const DesignerApp = () => {
         layerType={contextMenuLayer.type}
         visible={contextMenuLayer.visible}
         locked={contextMenuLayer.locked}
+        onRename={() => {
+          renameLayer(contextMenuLayer.id);
+          setContextMenu(null);
+        }}
         onDuplicate={() => {
           duplicateSelectedLayer();
           setContextMenu(null);
@@ -2805,9 +3284,40 @@ export const DesignerApp = () => {
           alignSelectedLayer("center");
           setContextMenu(null);
         }}
+        onUngroup={
+          contextMenuLayer.type === "group"
+            ? () => {
+                ungroupSelectedLayer();
+                setContextMenu(null);
+              }
+            : undefined
+        }
         onDelete={() => {
           deleteSelectedLayer();
           setContextMenu(null);
+        }}
+      />
+    );
+  };
+
+  const renderAssetContextMenu = () => {
+    if (!assetContextMenu || !contextMenuAsset || !isEditableProject) {
+      return null;
+    }
+
+    return (
+      <DesignerAssetContextMenu
+        x={assetContextMenu.x}
+        y={assetContextMenu.y}
+        assetName={contextMenuAsset.filename}
+        linked={draftDocument?.assets.some((asset) => asset.assetId === contextMenuAsset.id) ?? false}
+        onPlace={() => {
+          placeExistingAsset(contextMenuAsset);
+          setAssetContextMenu(null);
+        }}
+        onDelete={() => {
+          void deleteAssetFromLibrary(contextMenuAsset.id);
+          setAssetContextMenu(null);
         }}
       />
     );
@@ -2826,6 +3336,7 @@ export const DesignerApp = () => {
       {project ? renderWorkspace() : null}
       {project ? renderOverlay() : null}
       {project ? renderContextMenu() : null}
+      {project ? renderAssetContextMenu() : null}
     </>
   );
 };

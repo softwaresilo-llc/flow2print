@@ -12,7 +12,10 @@ interface DesignerHistoryPanelProps {
   templateName: string;
   hasUnsavedChanges: boolean;
   undoCount: number;
+  redoCount: number;
   entries: DesignerHistoryEntry[];
+  onUndo: () => void;
+  onRedo: () => void;
   onRestore: (restoreIndex: number) => void;
   onClear: () => void;
 }
@@ -22,18 +25,31 @@ export const DesignerHistoryPanel = ({
   templateName,
   hasUnsavedChanges,
   undoCount,
+  redoCount,
   entries,
+  onUndo,
+  onRedo,
   onRestore,
   onClear
 }: DesignerHistoryPanelProps) => (
   <article className="panel panel--tight panel--navigator panel--sidebar panel--utility stitch-history-panel">
     <div className="navigator-topbar stitch-history-panel__topbar">
-      <strong>History</strong>
-      <button type="button" className="icon-button" aria-label="History filters" title="History filters">
-        <span className="material-symbols-outlined" aria-hidden="true">
-          filter_list
-        </span>
-      </button>
+      <div>
+        <strong>History</strong>
+        <p>Recent session changes and restore points.</p>
+      </div>
+      <div className="stitch-history-panel__actions">
+        <button type="button" className="icon-button" aria-label="Undo" title="Undo" onClick={onUndo} disabled={undoCount === 0}>
+          <span className="material-symbols-outlined" aria-hidden="true">
+            undo
+          </span>
+        </button>
+        <button type="button" className="icon-button" aria-label="Redo" title="Redo" onClick={onRedo} disabled={redoCount === 0}>
+          <span className="material-symbols-outlined" aria-hidden="true">
+            redo
+          </span>
+        </button>
+      </div>
     </div>
 
     <div className="stitch-history-panel__meta">
@@ -53,9 +69,22 @@ export const DesignerHistoryPanel = ({
         <strong>Undo stack</strong>
         <span>{undoCount}</span>
       </div>
+      <div className="kv-item">
+        <strong>Redo stack</strong>
+        <span>{redoCount}</span>
+      </div>
     </div>
 
     <div className="navigator-panel__body stitch-history-panel__body">
+      <div className={`stitch-history-current ${hasUnsavedChanges ? "stitch-history-current--dirty" : ""}`}>
+        <span className="material-symbols-outlined" aria-hidden="true">
+          edit_document
+        </span>
+        <div className="stitch-history-current__content">
+          <strong>Current draft</strong>
+          <span>{hasUnsavedChanges ? "Unsaved changes are still in progress." : "Everything in this session is saved."}</span>
+        </div>
+      </div>
       {entries.length === 0 ? (
         <div className="empty-state stitch-history-panel__empty">
           No local changes yet. Add text, place an image, or adjust a layer to start the session history.
@@ -63,11 +92,9 @@ export const DesignerHistoryPanel = ({
       ) : (
         <div className="stitch-history-list">
           {entries.map((entry, index) => (
-            <button
+            <article
               key={entry.id}
-              type="button"
               className={`stitch-history-item ${index === 0 ? "stitch-history-item--active" : ""}`}
-              onClick={() => onRestore(entry.restoreIndex)}
             >
               <span className="stitch-history-item__icon">
                 <span className="material-symbols-outlined" aria-hidden="true">
@@ -79,10 +106,12 @@ export const DesignerHistoryPanel = ({
                 <span>{entry.relativeTime}</span>
               </span>
               <span className="stitch-history-item__time">{entry.timeLabel}</span>
-              <span className="stitch-history-item__restore material-symbols-outlined" aria-hidden="true">
-                restore
+              <span className="stitch-history-item__restore">
+                <button type="button" className="button button--ghost button--compact" onClick={() => onRestore(entry.restoreIndex)}>
+                  Restore
+                </button>
               </span>
-            </button>
+            </article>
           ))}
         </div>
       )}

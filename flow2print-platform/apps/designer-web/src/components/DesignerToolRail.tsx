@@ -6,6 +6,7 @@ interface DesignerToolRailProps {
   onAddText: () => void;
   onAddImage: () => void;
   onAddShape: () => void;
+  onAddDivider: () => void;
   onOpenMenu: () => void;
 }
 
@@ -47,6 +48,7 @@ export const DesignerToolRail = ({
   onAddText,
   onAddImage,
   onAddShape,
+  onAddDivider,
   onOpenMenu
 }: DesignerToolRailProps) => (
   <aside className="tool-rail" aria-label="Design tools">
@@ -71,6 +73,13 @@ export const DesignerToolRail = ({
         title="Add shape"
         disabled={!isEditableProject}
         onClick={onAddShape}
+      />
+      <ToolRailButton
+        icon="horizontal_rule"
+        label="Line"
+        title="Add line / divider"
+        disabled={!isEditableProject}
+        onClick={onAddDivider}
       />
     </div>
     <div className="tool-rail__separator" />

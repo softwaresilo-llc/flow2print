@@ -1,4 +1,4 @@
-import type { CSSProperties, MouseEvent } from "react";
+import type { ChangeEvent, CSSProperties, KeyboardEvent, MouseEvent } from "react";
 
 import type { Flow2PrintDocument } from "@flow2print/design-document";
 
@@ -11,6 +11,16 @@ interface DesignerStagePreviewProps {
   selectedLayerIds: string[];
   assetUrls: Record<string, string>;
   onSelectLayerIds: (ids: string[]) => void;
+  onOpenLayerContextMenu: (
+    event: MouseEvent<HTMLDivElement>,
+    layer: DesignerLayer
+  ) => void;
+  editingTextLayerId: string | null;
+  editingTextValue: string;
+  onBeginTextEdit: (layer: DesignerLayer) => void;
+  onEditTextValueChange: (value: string) => void;
+  onCommitTextEdit: () => void;
+  onCancelTextEdit: () => void;
 }
 
 const toPx = (value: number, scale: number) => value * scale;
@@ -39,6 +49,19 @@ const getImageObjectPosition = (layer: DesignerLayer) => {
 
 const renderShapeContent = (layer: DesignerLayer) => {
   const variant = String(layer.metadata.variant ?? "");
+  if (variant === "divider") {
+    return (
+      <div className="stage-preview__divider">
+        <span
+          className="stage-preview__divider-line"
+          style={{
+            background: String(layer.metadata.fill ?? "#9fb0c8"),
+            height: `min(100%, ${Math.max(2, layer.height)}px)`
+          }}
+        />
+      </div>
+    );
+  }
   if (variant === "logo-placeholder") {
     return (
       <div className="stage-preview__logo-placeholder">
@@ -120,7 +143,14 @@ const renderLayerContent = (
   scale: number,
   assetUrls: Record<string, string>,
   onSelectLayerIds: (ids: string[]) => void,
-  selectedLayerIds: string[]
+  onOpenLayerContextMenu: (event: MouseEvent<HTMLDivElement>, layer: DesignerLayer) => void,
+  selectedLayerIds: string[],
+  editingTextLayerId: string | null,
+  editingTextValue: string,
+  onBeginTextEdit: (layer: DesignerLayer) => void,
+  onEditTextValueChange: (value: string) => void,
+  onCommitTextEdit: () => void,
+  onCancelTextEdit: () => void
 ) => {
   const sharedClassName = [
     "stage-preview__layer",
@@ -143,6 +173,30 @@ const renderLayerContent = (
     onSelectLayerIds([layer.id]);
   };
 
+  const handleContextMenu = (event: MouseEvent<HTMLDivElement>) => {
+    onOpenLayerContextMenu(event, layer);
+  };
+
+  const handleBeginInlineTextEdit = (event: MouseEvent<HTMLDivElement>) => {
+    if (layer.type !== "text") {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    onBeginTextEdit(layer);
+  };
+
+  const handleTextEditKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+      event.preventDefault();
+      onCommitTextEdit();
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      onCancelTextEdit();
+    }
+  };
+
   const style = getLayerStyle(layer, scale);
 
   if (layer.type === "image") {
@@ -150,7 +204,15 @@ const renderLayerContent = (
     const imageUrl = assetUrls[assetId];
     const imageStyle = getImageObjectPosition(layer);
     return (
-      <div key={layer.id} className={sharedClassName} style={style} onClick={handleSelect} role="button" tabIndex={0}>
+      <div
+        key={layer.id}
+        className={sharedClassName}
+        style={style}
+        onClick={handleSelect}
+        onContextMenu={handleContextMenu}
+        role="button"
+        tabIndex={0}
+      >
         <div className="stage-preview__layer-inner">
           {imageUrl ? (
             <img
@@ -185,7 +247,15 @@ const renderLayerContent = (
   if (layer.type === "group") {
     const children = Array.isArray(layer.metadata.children) ? (layer.metadata.children as DesignerLayer[]) : [];
     return (
-      <div key={layer.id} className={sharedClassName} style={style} onClick={handleSelect} role="button" tabIndex={0}>
+      <div
+        key={layer.id}
+        className={sharedClassName}
+        style={style}
+        onClick={handleSelect}
+        onContextMenu={handleContextMenu}
+        role="button"
+        tabIndex={0}
+      >
         <div className="stage-preview__layer-inner">
           {children.map((child) =>
             renderLayerContent(
@@ -193,7 +263,14 @@ const renderLayerContent = (
               scale,
               assetUrls,
               onSelectLayerIds,
-              selectedLayerIds
+              onOpenLayerContextMenu,
+              selectedLayerIds,
+              editingTextLayerId,
+              editingTextValue,
+              onBeginTextEdit,
+              onEditTextValueChange,
+              onCommitTextEdit,
+              onCancelTextEdit
             )
           )}
         </div>
@@ -211,9 +288,32 @@ const renderLayerContent = (
   }
 
   return (
-    <div key={layer.id} className={sharedClassName} style={style} onClick={handleSelect} role="button" tabIndex={0}>
+    <div
+      key={layer.id}
+      className={sharedClassName}
+      style={style}
+      onClick={handleSelect}
+      onContextMenu={handleContextMenu}
+      role="button"
+      tabIndex={0}
+      onDoubleClick={layer.type === "text" ? handleBeginInlineTextEdit : undefined}
+    >
       <div className="stage-preview__layer-inner">
-        {layer.type === "text" ? renderTextContent(layer, scale) : null}
+        {layer.type === "text" ? (
+          editingTextLayerId === layer.id ? (
+            <textarea
+              className="stage-preview__text-editor"
+              value={editingTextValue}
+              autoFocus
+              onChange={(event: ChangeEvent<HTMLTextAreaElement>) => onEditTextValueChange(event.target.value)}
+              onBlur={onCommitTextEdit}
+              onKeyDown={handleTextEditKeyDown}
+              onClick={(event) => event.stopPropagation()}
+            />
+          ) : (
+            <div onDoubleClick={handleBeginInlineTextEdit}>{renderTextContent(layer, scale)}</div>
+          )
+        ) : null}
         {layer.type === "shape" ? renderShapeContent(layer) : null}
         {layer.type === "qr" || layer.type === "barcode" ? renderQrOrBarcodeContent(layer) : null}
       </div>
@@ -235,11 +335,33 @@ export const DesignerStagePreview = ({
   scale,
   selectedLayerIds,
   assetUrls,
-  onSelectLayerIds
+  onSelectLayerIds,
+  onOpenLayerContextMenu,
+  editingTextLayerId,
+  editingTextValue,
+  onBeginTextEdit,
+  onEditTextValueChange,
+  onCommitTextEdit,
+  onCancelTextEdit
 }: DesignerStagePreviewProps) => (
   <div className="stage-preview" aria-hidden="false">
     {surface.layers
       .filter((layer) => layer.visible)
-      .map((layer) => renderLayerContent(layer, scale, assetUrls, onSelectLayerIds, selectedLayerIds))}
+      .map((layer) =>
+        renderLayerContent(
+          layer,
+          scale,
+          assetUrls,
+          onSelectLayerIds,
+          onOpenLayerContextMenu,
+          selectedLayerIds,
+          editingTextLayerId,
+          editingTextValue,
+          onBeginTextEdit,
+          onEditTextValueChange,
+          onCommitTextEdit,
+          onCancelTextEdit
+        )
+      )}
   </div>
 );

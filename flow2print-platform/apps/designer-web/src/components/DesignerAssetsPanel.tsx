@@ -1,3 +1,5 @@
+import type { MouseEvent } from "react";
+
 interface DesignerAssetsPanelAsset {
   id: string;
   filename: string;
@@ -14,6 +16,7 @@ interface DesignerAssetsPanelProps {
   onSearchQueryChange: (value: string) => void;
   onUpload: () => void;
   onUseAsset: (assetId: string) => void;
+  onOpenAssetMenu: (event: MouseEvent<HTMLButtonElement>, assetId: string) => void;
   isEditableProject: boolean;
 }
 
@@ -29,6 +32,7 @@ export const DesignerAssetsPanel = ({
   onSearchQueryChange,
   onUpload,
   onUseAsset,
+  onOpenAssetMenu,
   isEditableProject
 }: DesignerAssetsPanelProps) => {
   const recentAssets = assets.slice(0, 2);
@@ -39,11 +43,6 @@ export const DesignerAssetsPanel = ({
         <div>
           <strong>Assets</strong>
         </div>
-        <button type="button" className="icon-button" aria-label="More asset actions" title="More asset actions">
-          <span className="material-symbols-outlined" aria-hidden="true">
-            more_horiz
-          </span>
-        </button>
       </div>
 
       <div className="stitch-assets-panel__search">
@@ -73,37 +72,49 @@ export const DesignerAssetsPanel = ({
       <div className="navigator-panel__body stitch-assets-panel__body">
         {assets.length === 0 ? (
           <div className="empty-state stitch-assets-panel__empty">
-            Upload your first image to start building this design.
+            {searchQuery.trim() ? "No uploads match this search." : "Upload your first image to start building this design."}
           </div>
         ) : (
           <>
             <div className="stitch-assets-grid">
               {assets.map((asset) => (
-                <button
-                  key={asset.id}
-                  type="button"
-                  className="stitch-assets-grid__tile"
-                  onClick={() => onUseAsset(asset.id)}
-                  disabled={!isEditableProject}
-                  aria-label={`Place ${asset.filename}`}
-                  title={asset.filename}
-                >
-                  <span className="stitch-assets-grid__image">
-                    {asset.previewUrl ? (
-                      <img src={asset.previewUrl} alt="" loading="lazy" />
-                    ) : (
-                      <span className="material-symbols-outlined" aria-hidden="true">
-                        image
-                      </span>
-                    )}
-                  </span>
-                  <span className="stitch-assets-grid__overlay">
-                    <span className="material-symbols-outlined" aria-hidden="true">
-                      add
+                <article key={asset.id} className="stitch-assets-grid__tile">
+                  <button
+                    type="button"
+                    className="stitch-assets-grid__tile-button"
+                    onClick={() => onUseAsset(asset.id)}
+                    disabled={!isEditableProject}
+                    aria-label={`Place ${asset.filename}`}
+                    title={asset.filename}
+                  >
+                    <span className="stitch-assets-grid__image">
+                      {asset.previewUrl ? (
+                        <img src={asset.previewUrl} alt="" loading="lazy" />
+                      ) : (
+                        <span className="material-symbols-outlined" aria-hidden="true">
+                          image
+                        </span>
+                      )}
                     </span>
-                  </span>
-                  {asset.linked ? <span className="stitch-assets-grid__badge">Used</span> : null}
-                </button>
+                    <span className="stitch-assets-grid__overlay">
+                      <span className="material-symbols-outlined" aria-hidden="true">
+                        add
+                      </span>
+                    </span>
+                    {asset.linked ? <span className="stitch-assets-grid__badge">Used</span> : null}
+                  </button>
+                  <button
+                    type="button"
+                    className="stitch-assets-grid__menu"
+                    aria-label={`More actions for ${asset.filename}`}
+                    title={`More actions for ${asset.filename}`}
+                    onClick={(event) => onOpenAssetMenu(event, asset.id)}
+                  >
+                    <span className="material-symbols-outlined" aria-hidden="true">
+                      more_horiz
+                    </span>
+                  </button>
+                </article>
               ))}
             </div>
 
@@ -111,21 +122,33 @@ export const DesignerAssetsPanel = ({
               <h4>Recent uploads</h4>
               <div className="stitch-assets-recent">
                 {recentAssets.map((asset) => (
-                  <button
-                    key={`recent-${asset.id}`}
-                    type="button"
-                    className="stitch-assets-recent__item"
-                    onClick={() => onUseAsset(asset.id)}
-                    disabled={!isEditableProject}
-                  >
-                    <span className="stitch-assets-recent__thumb">
-                      {asset.previewUrl ? <img src={asset.previewUrl} alt="" loading="lazy" /> : null}
-                    </span>
-                    <span className="stitch-assets-recent__content">
-                      <strong>{asset.filename}</strong>
-                      <span>{formatAssetMeta(asset)}</span>
-                    </span>
-                  </button>
+                  <article key={`recent-${asset.id}`} className="stitch-assets-recent__row">
+                    <button
+                      type="button"
+                      className="stitch-assets-recent__item"
+                      onClick={() => onUseAsset(asset.id)}
+                      disabled={!isEditableProject}
+                    >
+                      <span className="stitch-assets-recent__thumb">
+                        {asset.previewUrl ? <img src={asset.previewUrl} alt="" loading="lazy" /> : null}
+                      </span>
+                      <span className="stitch-assets-recent__content">
+                        <strong>{asset.filename}</strong>
+                        <span>{formatAssetMeta(asset)}</span>
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      className="stitch-assets-recent__menu"
+                      aria-label={`More actions for ${asset.filename}`}
+                      title={`More actions for ${asset.filename}`}
+                      onClick={(event) => onOpenAssetMenu(event, asset.id)}
+                    >
+                      <span className="material-symbols-outlined" aria-hidden="true">
+                        more_horiz
+                      </span>
+                    </button>
+                  </article>
                 ))}
               </div>
             </div>

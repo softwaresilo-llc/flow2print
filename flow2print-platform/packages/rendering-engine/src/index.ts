@@ -242,7 +242,8 @@ const renderPreviewLayer = async (
 
   if (layer.type === "shape") {
     const fill = escapeXml(String(layer.metadata.fill ?? "#dbe8ff"));
-    const radius = Math.round(Math.min(width, height) * 0.08);
+    const variant = String(layer.metadata.variant ?? "");
+    const radius = variant === "divider" ? Math.round(height / 2) : Math.round(Math.min(width, height) * 0.08);
     return `<rect x="${x}" y="${y}" width="${width}" height="${height}" rx="${radius}" ry="${radius}" fill="${fill}" opacity="${opacity}"${transform} />`;
   }
 
@@ -388,7 +389,13 @@ const drawPdfLayer = async (
 
   if (layer.type === "shape") {
     const fill = String(layer.metadata.fill ?? "#dbe8ff");
-    doc.roundedRect(0, 0, width, height, Math.min(width, height) * 0.08).fillAndStroke(fill, "#9bb0d8");
+    const variant = String(layer.metadata.variant ?? "");
+    const radius = variant === "divider" ? height / 2 : Math.min(width, height) * 0.08;
+    if (variant === "divider") {
+      doc.roundedRect(0, 0, width, height, radius).fill(fill);
+    } else {
+      doc.roundedRect(0, 0, width, height, radius).fillAndStroke(fill, "#9bb0d8");
+    }
     doc.restore();
     return;
   }

@@ -24,11 +24,8 @@ export const DesignerWorkspaceTopbar = ({
       <div className="workspace-title">
         <h1>{projectTitle}</h1>
       </div>
-      <div className="workspace-topbar__divider" aria-hidden="true" />
-      <div className="workspace-statusline">{statusLine}</div>
     </div>
     <div className="workspace-topbar__center">
-      <div className="workspace-tools">{tools}</div>
       <div className="workspace-mode-switch" role="tablist" aria-label="Designer workflow">
         <button
           type="button"
@@ -52,6 +49,10 @@ export const DesignerWorkspaceTopbar = ({
           Files
         </button>
       </div>
+    </div>
+    <div className="workspace-topbar__end">
+      <div className="workspace-statusline">{statusLine}</div>
+      <div className="workspace-tools">{tools}</div>
       <div className="workspace-actions workspace-actions--editor">{actions}</div>
     </div>
   </header>

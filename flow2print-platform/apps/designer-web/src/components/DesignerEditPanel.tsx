@@ -139,7 +139,7 @@ export const DesignerEditPanel = ({
               onOpenLayerActions(event.currentTarget);
             }}
           >
-            More actions
+            Actions
           </button>
         </div>
       </div>
@@ -351,6 +351,9 @@ export const DesignerEditPanel = ({
                 </select>
               </label>
             </div>
+            <div className="read-only-note">
+              Use <strong>Crop image</strong> above the canvas to move the picture inside its frame.
+            </div>
             <div className="stack-actions">
               <button
                 type="button"
@@ -415,6 +418,10 @@ export const DesignerEditPanel = ({
               disabled={selectedLayer.locked}
             />
           </label>
+        </div>
+        <div className="badge-row">
+          <span className="badge badge--neutral">{selectedLayer.visible ? "Visible" : "Hidden"}</span>
+          <span className="badge badge--neutral">{selectedLayer.locked ? "Locked" : "Editable"}</span>
         </div>
       </div>
     </div>

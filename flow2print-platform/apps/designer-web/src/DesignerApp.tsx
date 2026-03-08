@@ -1983,24 +1983,26 @@ export const DesignerApp = () => {
           mode={rightPanel}
           onModeChange={setRightPanel}
           tools={
-            <>
-              <button type="button" className="button--ghost" onClick={undoChange} disabled={historyPast.length === 0 || !isEditableProject}>
-                Undo
-              </button>
-              <button type="button" className="button--ghost" onClick={redoChange} disabled={historyFuture.length === 0 || !isEditableProject}>
-                Redo
-              </button>
-              <button type="button" className="button--ghost" onClick={() => setZoom((value) => clamp(value - 0.1, 0.5, 2))}>
-                -
-              </button>
-              <button type="button" className="button--ghost" onClick={() => setZoom(1)}>
-                Fit
-              </button>
-              <button type="button" className="button--ghost" onClick={() => setZoom((value) => clamp(value + 0.1, 0.5, 2))}>
-                +
-              </button>
-              <span className="badge badge--neutral">{Math.round(zoom * 100)}%</span>
-            </>
+            rightPanel === "edit" ? (
+              <>
+                <button type="button" className="button--ghost" onClick={undoChange} disabled={historyPast.length === 0 || !isEditableProject}>
+                  Undo
+                </button>
+                <button type="button" className="button--ghost" onClick={redoChange} disabled={historyFuture.length === 0 || !isEditableProject}>
+                  Redo
+                </button>
+                <button type="button" className="button--ghost" onClick={() => setZoom((value) => clamp(value - 0.1, 0.5, 2))}>
+                  -
+                </button>
+                <button type="button" className="button--ghost" onClick={() => setZoom(1)}>
+                  Fit
+                </button>
+                <button type="button" className="button--ghost" onClick={() => setZoom((value) => clamp(value + 0.1, 0.5, 2))}>
+                  +
+                </button>
+                <span className="badge badge--neutral">{Math.round(zoom * 100)}%</span>
+              </>
+            ) : null
           }
           actions={
             <>

@@ -5,6 +5,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
 import test from "node:test";
+import sharp from "sharp";
 
 const waitForHealthy = async (baseUrl: string) => {
   for (let attempt = 0; attempt < 40; attempt += 1) {
@@ -208,8 +209,13 @@ test("edge-api serves finalize flow, commerce status, and artifact downloads", a
     assert.equal(previewResponse.headers.get("content-type"), "image/png");
     assert.equal(productionResponse.status, 200);
     assert.equal(productionResponse.headers.get("content-type"), "application/pdf");
-    assert.ok((await previewResponse.arrayBuffer()).byteLength > 0);
-    assert.ok((await productionResponse.arrayBuffer()).byteLength > 0);
+    const previewBuffer = Buffer.from(await previewResponse.arrayBuffer());
+    const productionBuffer = Buffer.from(await productionResponse.arrayBuffer());
+    const previewMetadata = await sharp(previewBuffer).metadata();
+    assert.ok(previewBuffer.byteLength > 4_000);
+    assert.ok((previewMetadata.width ?? 0) > 400);
+    assert.ok((previewMetadata.height ?? 0) > 200);
+    assert.ok(productionBuffer.byteLength > 2_000);
   } finally {
     server.kill("SIGTERM");
     execFileSync("psql", [baseDatabaseUrl, "-c", `DROP SCHEMA IF EXISTS "${schema}" CASCADE`], {

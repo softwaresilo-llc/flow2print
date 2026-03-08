@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { dirname, resolve } from "node:path";
 import type { Prisma } from "@prisma/client";
@@ -45,80 +45,58 @@ import {
   type FontFileRecord
 } from "@flow2print/domain";
 import type { ApplyTemplateRequest, FinalizeProjectRequest, LaunchSessionRequest } from "@flow2print/http-sdk";
+import {
+  renderProjectOutputs,
+  type RenderOutput,
+  type RenderingAssetSource,
+} from "@flow2print/rendering-engine";
 
 import { getPrismaClient } from "./client.js";
 
 const dataDir = resolve(process.cwd(), process.env.FLOW2PRINT_DATA_DIR ?? ".flow2print-runtime");
-const previewPixelBase64 =
-  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9oNcamcAAAAASUVORK5CYII=";
-
-const createPdfBuffer = (title: string, lines: string[]) => {
-  const escapedTitle = title.replace(/[()\\]/g, "\\$&");
-  const text = [escapedTitle, ...lines].join(" | ").replace(/[()\\]/g, "\\$&");
-  const stream = `BT /F1 18 Tf 72 720 Td (${text}) Tj ET`;
-  const length = Buffer.byteLength(stream, "utf8");
-
-  return Buffer.from(
-    `%PDF-1.4
-1 0 obj
-<< /Type /Catalog /Pages 2 0 R >>
-endobj
-2 0 obj
-<< /Type /Pages /Kids [3 0 R] /Count 1 >>
-endobj
-3 0 obj
-<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>
-endobj
-4 0 obj
-<< /Length ${length} >>
-stream
-${stream}
-endstream
-endobj
-5 0 obj
-<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
-endobj
-xref
-0 6
-0000000000 65535 f 
-0000000009 00000 n 
-0000000058 00000 n 
-0000000115 00000 n 
-0000000241 00000 n 
-0000000334 00000 n 
-trailer
-<< /Size 6 /Root 1 0 R >>
-startxref
-404
-%%EOF`,
-    "utf8"
-  );
-};
 
 const artifactFilePathForHref = (href: string) => resolve(dataDir, href.replace(/^\//, ""));
+const objectStorageRoot = resolve(process.cwd(), process.env.FLOW2PRINT_STORAGE_DIR ?? ".flow2print-object-storage");
+const objectPathForKey = (objectKey: string) => resolve(objectStorageRoot, objectKey);
 const hashApiTokenSecret = (token: string) => createHash("sha256").update(token).digest("hex");
 
-const ensureArtifactFiles = async (artifacts: OutputArtifact[], report: PreflightReport) => {
+const renderedArtifactBuffer = (artifactType: OutputArtifact["artifactType"], outputs: RenderOutput) => {
+  if (artifactType === "preview_png") {
+    return outputs.previewPng;
+  }
+  if (artifactType === "proof_pdf") {
+    return outputs.proofPdf;
+  }
+  return outputs.productionPdf;
+};
+
+const persistArtifactFiles = async (artifacts: OutputArtifact[], outputs: RenderOutput) => {
   for (const artifact of artifacts) {
     const filePath = artifactFilePathForHref(artifact.href);
     await mkdir(dirname(filePath), { recursive: true });
-
-    if (artifact.artifactType === "preview_png") {
-      await writeFile(filePath, Buffer.from(previewPixelBase64, "base64"));
-      continue;
-    }
-
-    const label = artifact.artifactType === "proof_pdf" ? "Proof PDF" : "Production PDF";
-    await writeFile(
-      filePath,
-      createPdfBuffer("Flow2Print", [
-        label,
-        `Project ${artifact.projectId}`,
-        `Version ${artifact.projectVersionId}`,
-        `Preflight ${report.status.toUpperCase()}`
-      ])
-    );
+    await writeFile(filePath, renderedArtifactBuffer(artifact.artifactType, outputs));
   }
+};
+
+const collectLayerAssetIds = (document: Flow2PrintDocument) => {
+  const assetIds = new Set(document.assets.map((asset) => asset.assetId));
+  const visitLayer = (layer: Flow2PrintDocument["surfaces"][number]["layers"][number]) => {
+    const assetId = String(layer.metadata.assetId ?? "");
+    if (assetId) {
+      assetIds.add(assetId);
+    }
+    if (layer.type === "group" && Array.isArray(layer.metadata.children)) {
+      for (const child of layer.metadata.children as Flow2PrintDocument["surfaces"][number]["layers"]) {
+        visitLayer(child);
+      }
+    }
+  };
+  for (const surface of document.surfaces) {
+    for (const layer of surface.layers) {
+      visitLayer(layer);
+    }
+  }
+  return [...assetIds];
 };
 
 const asJson = <T>(value: T): Prisma.InputJsonValue => value as Prisma.InputJsonValue;
@@ -1761,6 +1739,49 @@ export class DatabaseRuntimeStore {
     };
   }
 
+  private async getRenderingAssets(document: Flow2PrintDocument): Promise<RenderingAssetSource[]> {
+    const assetIds = collectLayerAssetIds(document);
+    if (assetIds.length === 0) {
+      return [];
+    }
+
+    const records = await this.prisma.asset.findMany({
+      where: {
+        id: {
+          in: assetIds,
+        },
+      },
+    });
+
+    const assets = await Promise.all(
+      records.map(async (record) => {
+        const objectKey = record.normalizedObjectKey ?? record.originalObjectKey;
+        if (!objectKey) {
+          return null;
+        }
+
+        try {
+          const buffer = await readFile(objectPathForKey(objectKey));
+          return {
+            assetId: record.id,
+            mimeType: record.mimeType,
+            filename: record.filename,
+            buffer: Buffer.from(buffer),
+          } satisfies RenderingAssetSource;
+        } catch {
+          return null;
+        }
+      }),
+    );
+
+    return assets.reduce<RenderingAssetSource[]>((collected, asset) => {
+      if (asset) {
+        collected.push(asset);
+      }
+      return collected;
+    }, []);
+  }
+
   async autosaveProject(id: string, document: Flow2PrintDocument) {
     await this.ensureSeeded();
     const current = await this.getProject(id);
@@ -1817,6 +1838,14 @@ export class DatabaseRuntimeStore {
     const finalized = finalizeProject(current.project, current.version, request.proofMode, request.approvalIntent);
     const report = createPreflightReport(finalized.project, finalized.version);
     const artifacts = createProductionArtifacts(finalized.project, finalized.version);
+    const renderingAssets = await this.getRenderingAssets(finalized.version.document);
+    const renderedOutputs = await renderProjectOutputs({
+      document: finalized.version.document,
+      assets: renderingAssets,
+      projectId: finalized.project.id,
+      projectVersionId: finalized.version.id,
+      preflightStatus: report.status === "pass" ? "pass" : report.status === "warn" ? "warn" : "fail"
+    });
     const projectWithOutputs: ProjectRecord = {
       ...finalized.project,
       latestJobs: finalized.project.latestJobs.map((job) => ({ ...job, status: "succeeded" })),
@@ -1852,7 +1881,7 @@ export class DatabaseRuntimeStore {
         }
       })
     ]);
-    await ensureArtifactFiles(artifacts, report);
+    await persistArtifactFiles(artifacts, renderedOutputs);
     return {
       project: projectWithOutputs,
       version: finalized.version,

@@ -21,6 +21,7 @@
     "@flow2print/domain": "workspace:*",
     "@flow2print/http-sdk": "workspace:*",
     "@flow2print/pricing-signals": "workspace:*",
+    "@flow2print/rendering-engine": "workspace:*",
     "@prisma/client": "^6.5.0"
   },
   "devDependencies": {

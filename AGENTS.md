@@ -119,6 +119,18 @@
 - Remove duplicated or contradictory navigation once a cleaner pattern exists.
 - Keep terminology consistent across list, form, show, and API responses.
 
+## Implementation Rules
+
+- Do not choose the "minimal path" when implementing planned platform features.
+- Default to the complete, clean implementation that matches the agreed architecture, not a shortcut stub that must be replaced immediately afterward.
+- Do not ship placeholder logic where the plan already defines the real production approach.
+- If a feature requires real persistence, rendering, processing, or integration behavior, implement that real behavior instead of a demo fake.
+- Every substantial implementation should include meaningful verification:
+  - automated tests where practical
+  - browser checks for UI flows
+  - API/runtime verification for backend behavior
+- Do not present a partial stub as if the feature itself were complete.
+
 ## Immediate Priorities When Continuing Work
 
 - Keep the PostgreSQL-backed path as the only runtime persistence path.

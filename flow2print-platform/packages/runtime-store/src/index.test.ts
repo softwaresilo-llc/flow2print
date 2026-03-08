@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { access } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
+import sharp from "sharp";
 
 test("runtime store finalization creates report and artifacts", async () => {
   const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -81,9 +82,21 @@ test("runtime store finalization creates report and artifacts", async () => {
   assert.equal(commerceStatus?.artifacts.length, 3);
   assert.equal(commerceStatus?.projectVersionId, finalized.version.id);
   assert.equal(commerceStatus?.preflightStatus, "warn");
-  await access(join(dataDir, "artifacts", launch.projectId, finalized.version.id, "preview.png"));
-  await access(join(dataDir, "artifacts", launch.projectId, finalized.version.id, "production.pdf"));
-  await access(join(dataDir, "artifacts", launch.projectId, finalized.version.id, "proof.pdf"));
+  const previewPath = join(dataDir, "artifacts", launch.projectId, finalized.version.id, "preview.png");
+  const productionPath = join(dataDir, "artifacts", launch.projectId, finalized.version.id, "production.pdf");
+  const proofPath = join(dataDir, "artifacts", launch.projectId, finalized.version.id, "proof.pdf");
+  await access(previewPath);
+  await access(productionPath);
+  await access(proofPath);
+  const previewBuffer = await readFile(previewPath);
+  const productionBuffer = await readFile(productionPath);
+  const proofBuffer = await readFile(proofPath);
+  const previewMetadata = await sharp(previewBuffer).metadata();
+  assert.ok(previewBuffer.byteLength > 4_000, "preview should be a meaningful raster output");
+  assert.ok((previewMetadata.width ?? 0) > 400, "preview width should reflect the rendered document");
+  assert.ok((previewMetadata.height ?? 0) > 200, "preview height should reflect the rendered document");
+  assert.ok(productionBuffer.byteLength > 2_000, "production pdf should be larger than a stub");
+  assert.ok(proofBuffer.byteLength > 2_000, "proof pdf should be larger than a stub");
   assert.equal(quoteLink?.state, "quote_linked");
   assert.equal(orderLink?.state, "order_linked");
   assert.equal(persistedLink?.externalOrderRef, "order-1000");

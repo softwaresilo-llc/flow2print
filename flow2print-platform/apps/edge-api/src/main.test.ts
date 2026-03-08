@@ -215,7 +215,9 @@ test("edge-api serves finalize flow, commerce status, and artifact downloads", a
     assert.ok(previewBuffer.byteLength > 4_000);
     assert.ok((previewMetadata.width ?? 0) > 400);
     assert.ok((previewMetadata.height ?? 0) > 200);
-    assert.ok(productionBuffer.byteLength > 2_000);
+    assert.ok(productionBuffer.byteLength > 500);
+    assert.equal(productionBuffer.subarray(0, 4).toString("utf8"), "%PDF");
+    assert.ok(productionBuffer.includes(Buffer.from("/Type /Page")));
   } finally {
     server.kill("SIGTERM");
     execFileSync("psql", [baseDatabaseUrl, "-c", `DROP SCHEMA IF EXISTS "${schema}" CASCADE`], {

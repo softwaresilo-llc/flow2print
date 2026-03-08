@@ -20,34 +20,39 @@ export const DesignerWorkspaceTopbar = ({
   editLabel = "Design"
 }: DesignerWorkspaceTopbarProps) => (
   <header className="workspace-topbar workspace-topbar--editor">
-    <div className="workspace-title">
-      <h1>{projectTitle}</h1>
+    <div className="workspace-topbar__start">
+      <div className="workspace-title">
+        <h1>{projectTitle}</h1>
+      </div>
+      <div className="workspace-topbar__divider" aria-hidden="true" />
       <div className="workspace-statusline">{statusLine}</div>
     </div>
-    <div className="workspace-tools">{tools}</div>
-    <div className="workspace-mode-switch" role="tablist" aria-label="Designer workflow">
-      <button
-        type="button"
-        className={`workspace-mode ${mode === "edit" ? "workspace-mode--active" : ""}`}
-        onClick={() => onModeChange("edit")}
-      >
-        {editLabel}
-      </button>
-      <button
-        type="button"
-        className={`workspace-mode ${mode === "review" ? "workspace-mode--active" : ""}`}
-        onClick={() => onModeChange("review")}
-      >
-        Check
-      </button>
-      <button
-        type="button"
-        className={`workspace-mode ${mode === "finish" ? "workspace-mode--active" : ""}`}
-        onClick={() => onModeChange("finish")}
-      >
-        Files
-      </button>
+    <div className="workspace-topbar__center">
+      <div className="workspace-tools">{tools}</div>
+      <div className="workspace-mode-switch" role="tablist" aria-label="Designer workflow">
+        <button
+          type="button"
+          className={`workspace-mode ${mode === "edit" ? "workspace-mode--active" : ""}`}
+          onClick={() => onModeChange("edit")}
+        >
+          {editLabel}
+        </button>
+        <button
+          type="button"
+          className={`workspace-mode ${mode === "review" ? "workspace-mode--active" : ""}`}
+          onClick={() => onModeChange("review")}
+        >
+          Check
+        </button>
+        <button
+          type="button"
+          className={`workspace-mode ${mode === "finish" ? "workspace-mode--active" : ""}`}
+          onClick={() => onModeChange("finish")}
+        >
+          Files
+        </button>
+      </div>
+      <div className="workspace-actions workspace-actions--editor">{actions}</div>
     </div>
-    <div className="workspace-actions workspace-actions--editor">{actions}</div>
   </header>
 );

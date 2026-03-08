@@ -615,106 +615,135 @@ export const FabricCanvasStage = forwardRef<FabricCanvasStageHandle, FabricCanva
       let cancelled = false;
       const render = async () => {
         syncingRef.current = true;
-        canvas.clear();
-        canvas.setDimensions({
-          width: surface.artboard.width * scale,
-          height: surface.artboard.height * scale
-        });
-        canvas.selection = isEditable;
-        canvas.backgroundColor = "#ffffff";
+        try {
+          if (canvasElementRef.current) {
+            canvasElementRef.current.dataset.renderStatus = "rendering";
+            canvasElementRef.current.dataset.objectCount = "0";
+            canvasElementRef.current.dataset.renderError = "";
+          }
+          canvas.clear();
+          canvas.setDimensions({
+            width: surface.artboard.width * scale,
+            height: surface.artboard.height * scale
+          });
+          canvas.selection = isEditable;
+          canvas.backgroundColor = "#ffffff";
+          canvas.calcOffset();
 
-        if (gridEnabled) {
-          for (let x = GRID_STEP; x < surface.artboard.width * scale; x += GRID_STEP) {
+          if (gridEnabled) {
+            for (let x = GRID_STEP; x < surface.artboard.width * scale; x += GRID_STEP) {
+              canvas.add(
+                new Rect({
+                  left: x,
+                  top: 0,
+                  width: 1,
+                  height: surface.artboard.height * scale,
+                  fill: "rgba(23,32,42,0.04)",
+                  selectable: false,
+                  evented: false
+                })
+              );
+            }
+            for (let y = GRID_STEP; y < surface.artboard.height * scale; y += GRID_STEP) {
+              canvas.add(
+                new Rect({
+                  left: 0,
+                  top: y,
+                  width: surface.artboard.width * scale,
+                  height: 1,
+                  fill: "rgba(23,32,42,0.04)",
+                  selectable: false,
+                  evented: false
+                })
+              );
+            }
+          }
+
+          if (guidesVisible) {
             canvas.add(
               new Rect({
-                left: x,
-                top: 0,
-                width: 1,
-                height: surface.artboard.height * scale,
-                fill: "rgba(23,32,42,0.04)",
+                left: surface.bleedBox.x * scale,
+                top: surface.bleedBox.y * scale,
+                width: surface.bleedBox.width * scale,
+                height: surface.bleedBox.height * scale,
+                fill: "",
+                stroke: "#c97f2b",
+                strokeDashArray: [8, 8],
+                strokeWidth: 1,
+                selectable: false,
+                evented: false
+              }),
+              new Rect({
+                left: surface.safeBox.x * scale,
+                top: surface.safeBox.y * scale,
+                width: surface.safeBox.width * scale,
+                height: surface.safeBox.height * scale,
+                fill: "",
+                stroke: "#4a86d3",
+                strokeDashArray: [8, 8],
+                strokeWidth: 1,
                 selectable: false,
                 evented: false
               })
             );
           }
-          for (let y = GRID_STEP; y < surface.artboard.height * scale; y += GRID_STEP) {
-            canvas.add(
-              new Rect({
-                left: 0,
-                top: y,
-                width: surface.artboard.width * scale,
-                height: 1,
-                fill: "rgba(23,32,42,0.04)",
-                selectable: false,
-                evented: false
-              })
-            );
+
+          const layerObjects = await Promise.all(surface.layers.map((layer) => createFabricObject(layer, scale, assetUrls)));
+          if (cancelled) {
+            return;
           }
-        }
+          const nextMap = new Map<string, FabricLayerObject>();
+          for (const object of layerObjects) {
+            const layerObject = object as FabricLayerObject;
+            const isCropTarget =
+              cropMode && cropLayerId === layerObject.data?.layerId && layerObject.data?.layerType === "image";
+            layerObject.lockMovementX = !isEditable || Boolean(layerObject.data?.locked) || isCropTarget;
+            layerObject.lockMovementY = !isEditable || Boolean(layerObject.data?.locked) || isCropTarget;
+            layerObject.lockRotation = !isEditable || Boolean(layerObject.data?.locked) || isCropTarget;
+            layerObject.hasControls = isEditable && !Boolean(layerObject.data?.locked) && !isCropTarget;
+            if (isCropTarget) {
+              layerObject.hoverCursor = "move";
+            }
+            canvas.add(object);
+            if (layerObject.data?.layerId) {
+              nextMap.set(layerObject.data.layerId, layerObject);
+            }
+          }
+          objectMapRef.current = nextMap;
+          if (canvasElementRef.current) {
+            canvasElementRef.current.dataset.objectCount = String(nextMap.size);
+          }
 
-        if (guidesVisible) {
-          canvas.add(
-            new Rect({
-              left: surface.bleedBox.x * scale,
-              top: surface.bleedBox.y * scale,
-              width: surface.bleedBox.width * scale,
-              height: surface.bleedBox.height * scale,
-              fill: "",
-              stroke: "#c97f2b",
-              strokeDashArray: [8, 8],
-              strokeWidth: 1,
-              selectable: false,
-              evented: false
-            }),
-            new Rect({
-              left: surface.safeBox.x * scale,
-              top: surface.safeBox.y * scale,
-              width: surface.safeBox.width * scale,
-              height: surface.safeBox.height * scale,
-              fill: "",
-              stroke: "#4a86d3",
-              strokeDashArray: [8, 8],
-              strokeWidth: 1,
-              selectable: false,
-              evented: false
-            })
-          );
+          const selectedObjects = canvas
+            .getObjects()
+            .filter((object) => selectedLayerIds.includes((object as FabricLayerObject).data?.layerId ?? ""));
+          if (selectedObjects.length === 1) {
+            canvas.setActiveObject(selectedObjects[0]);
+          } else if (selectedObjects.length > 1) {
+            canvas.setActiveObject(new ActiveSelection(selectedObjects, { canvas }));
+          } else {
+            canvas.discardActiveObject();
+          }
+          canvas.renderAll();
+          const context = (canvas as Canvas & { contextContainer?: CanvasRenderingContext2D }).contextContainer;
+          if (context) {
+            context.save();
+            context.fillStyle = "rgba(255, 0, 0, 0.35)";
+            context.fillRect(12, 12, 28, 28);
+            context.restore();
+          }
+          if (canvasElementRef.current) {
+            canvasElementRef.current.dataset.renderStatus = "ready";
+          }
+        } catch (error) {
+          console.error("Flow2Print canvas render failed", error);
+          if (canvasElementRef.current) {
+            canvasElementRef.current.dataset.renderStatus = "error";
+            canvasElementRef.current.dataset.renderError = error instanceof Error ? error.message : String(error);
+          }
+        } finally {
+          syncingRef.current = false;
         }
-
-      const layerObjects = await Promise.all(surface.layers.map((layer) => createFabricObject(layer, scale, assetUrls)));
-      if (cancelled) {
-        return;
-      }
-      const nextMap = new Map<string, FabricLayerObject>();
-      for (const object of layerObjects) {
-        const layerObject = object as FabricLayerObject;
-        const isCropTarget = cropMode && cropLayerId === layerObject.data?.layerId && layerObject.data?.layerType === "image";
-        layerObject.lockMovementX = !isEditable || Boolean(layerObject.data?.locked) || isCropTarget;
-        layerObject.lockMovementY = !isEditable || Boolean(layerObject.data?.locked) || isCropTarget;
-        layerObject.lockRotation = !isEditable || Boolean(layerObject.data?.locked) || isCropTarget;
-        layerObject.hasControls = isEditable && !Boolean(layerObject.data?.locked) && !isCropTarget;
-        if (isCropTarget) {
-          layerObject.hoverCursor = "move";
-        }
-        canvas.add(object);
-        if (layerObject.data?.layerId) {
-          nextMap.set(layerObject.data.layerId, layerObject);
-        }
-      }
-      objectMapRef.current = nextMap;
-
-      const selectedObjects = canvas
-        .getObjects()
-          .filter((object) => selectedLayerIds.includes((object as FabricLayerObject).data?.layerId ?? ""));
-        if (selectedObjects.length === 1) {
-          canvas.setActiveObject(selectedObjects[0]);
-        } else if (selectedObjects.length > 1) {
-          canvas.setActiveObject(new ActiveSelection(selectedObjects, { canvas }));
-        } else {
-          canvas.discardActiveObject();
-        }
-        canvas.requestRenderAll();
-        syncingRef.current = false;
       };
 
       void render();

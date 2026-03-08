@@ -697,28 +697,44 @@ const createTemplateSeedLayers = (params: {
 
     return [
       shapeLayer({
-        name: "Accent",
-        x: safeBox.x,
-        y: safeBox.y,
-        width: Math.max(16, safeBox.width * 0.28),
-        height: safeBox.height,
+        name: "Logo Placeholder",
+        x: safeBox.x + 4,
+        y: safeBox.y + 4,
+        width: 12,
+        height: 12,
         fill: "#dbe8ff"
       }),
       textLayer({
-        name: "Headline",
-        text: "Your Company",
-        x: safeBox.x + 18,
-        y: safeBox.y + 9,
-        width: safeBox.width - 22,
-        height: 13
+        name: "Name: Alex Rivera",
+        text: "ALEX RIVERA",
+        x: safeBox.x + 44,
+        y: safeBox.y + 8,
+        width: Math.max(24, safeBox.width - 48),
+        height: 9
       }),
       textLayer({
-        name: "Contact",
-        text: "hello@example.com\n+49 30 123456",
-        x: safeBox.x + 18,
-        y: safeBox.y + 24,
-        width: safeBox.width - 22,
-        height: 14
+        name: "Title: Senior UI Designer",
+        text: "SENIOR UI DESIGNER",
+        x: safeBox.x + 44,
+        y: safeBox.y + 17,
+        width: Math.max(24, safeBox.width - 48),
+        height: 7
+      }),
+      textLayer({
+        name: "Contact Info",
+        text: "hello@modernui.design\n+1 (555) 000-1234",
+        x: safeBox.x + 7,
+        y: safeBox.y + safeBox.height - 12,
+        width: Math.max(26, safeBox.width - 14),
+        height: 9
+      }),
+      shapeLayer({
+        name: "Accent Panel",
+        x: safeBox.x + safeBox.width - 12,
+        y: safeBox.y + 3,
+        width: 10,
+        height: safeBox.height - 6,
+        fill: "#f3f7fd"
       })
     ];
   }
@@ -878,7 +894,7 @@ export const createProjectAggregate = (request: LaunchSessionRequest) => {
   const projectVersionId = `prv_${randomUUID()}`;
   const blueprint = blueprintForExternalProduct(request.externalProductRef);
   const template = templateForBlueprint(blueprint.id, request.templateId, {
-    allowDefault: request.templateId !== undefined
+    allowDefault: request.templateId !== null
   });
   const document = createBaseDocument({
     projectId,
@@ -907,7 +923,7 @@ export const createProjectAggregate = (request: LaunchSessionRequest) => {
 
   const project: ProjectRecord = {
     id: projectId,
-    title: template?.displayName ?? blueprint.displayName,
+    title: blueprint.displayName,
     status: "draft",
     approvalState: "not_required",
     blueprintId: blueprint.id,
@@ -1008,7 +1024,7 @@ export const applyTemplateToProject = (params: {
   return {
     project: {
       ...params.project,
-      title: template?.displayName ?? blueprintForExternalProduct(params.project.externalProductRef).displayName,
+      title: blueprintForExternalProduct(params.project.externalProductRef).displayName,
       templateId: template?.id ?? null,
       templateVersionId: template?.id ?? null,
       updatedAt: new Date().toISOString()

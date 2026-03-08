@@ -1,15 +1,17 @@
 interface DesignerNavigatorPanelProps {
   title: string;
-  summary: string;
+  summary?: string;
   description?: string;
   content: React.ReactNode;
+  footer?: React.ReactNode;
 }
 
 export const DesignerNavigatorPanel = ({
   title,
   summary,
   description,
-  content
+  content,
+  footer
 }: DesignerNavigatorPanelProps) => (
   <article className="panel panel--tight panel--navigator panel--sidebar panel--utility">
     <div className="navigator-topbar">
@@ -17,8 +19,9 @@ export const DesignerNavigatorPanel = ({
         <strong>{title}</strong>
         {description ? <p>{description}</p> : null}
       </div>
-      <span className="badge badge--neutral">{summary}</span>
+      {summary ? <span className="badge badge--neutral">{summary}</span> : null}
     </div>
-    {content}
+    <div className="navigator-panel__body">{content}</div>
+    {footer ? <div className="navigator-panel__footer">{footer}</div> : null}
   </article>
 );

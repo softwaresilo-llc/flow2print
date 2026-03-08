@@ -12,6 +12,7 @@ import { DesignerOverlay } from "./components/DesignerOverlay";
 import { DesignerPreviewPanel } from "./components/DesignerPreviewPanel";
 import { DesignerReviewPanel } from "./components/DesignerReviewPanel";
 import { DesignerSideFilmstrip } from "./components/DesignerSideFilmstrip";
+import { DesignerStagePreview } from "./components/DesignerStagePreview";
 import { DesignerToolRail } from "./components/DesignerToolRail";
 import { DesignerWorkspaceTopbar } from "./components/DesignerWorkspaceTopbar";
 import { FabricCanvasStage, type FabricCanvasStageHandle } from "./components/FabricCanvasStage";
@@ -185,20 +186,23 @@ const getImageLayerSize = (surface: DesignerSurface) => ({
   width: Math.max(18, Math.min(surface.safeBox.width * 0.6, surface.artboard.width - 12, 68)),
   height: Math.max(18, Math.min(surface.safeBox.height * 0.45, surface.artboard.height - 12, 58))
 });
-const layerPreviewText = (layer: DesignerLayer) => {
+const layerPreviewIcon = (layer: DesignerLayer) => {
   if (layer.type === "text") {
-    return String(layer.metadata.text ?? layer.name).slice(0, 2).toUpperCase();
+    return "title";
   }
-  if (layer.type === "qr") {
-    return "QR";
-  }
-  if (layer.type === "barcode") {
-    return "||";
+  if (layer.type === "image") {
+    return "image";
   }
   if (layer.type === "shape") {
-    return String(layer.name ?? "").slice(0, 2).toUpperCase();
+    return "category";
   }
-  return "IMG";
+  if (layer.type === "qr") {
+    return "qr_code_2";
+  }
+  if (layer.type === "barcode") {
+    return "barcode";
+  }
+  return "widgets";
 };
 
 const readJson = async <T,>(response: Response) => {
@@ -1776,13 +1780,56 @@ export const DesignerApp = () => {
       return (
         <DesignerNavigatorPanel
           title="Layers"
-          summary={`${currentSurface.layers.length} items`}
+          summary=""
           description=""
+          footer={
+            isEditableProject ? (
+              <>
+                <button
+                  type="button"
+                  className="icon-button"
+                  title="Session history"
+                  aria-label="Session history"
+                  onClick={() => setLeftPanel("history")}
+                >
+                  <span className="material-symbols-outlined" aria-hidden="true">
+                    stat_1
+                  </span>
+                </button>
+                <div className="navigator-footer__actions">
+                  <button
+                    type="button"
+                    className="icon-button"
+                    title="Group selection"
+                    aria-label="Group selection"
+                    onClick={groupSelectedLayers}
+                    disabled={!canGroupSelection}
+                  >
+                    <span className="material-symbols-outlined" aria-hidden="true">
+                      layers
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    className="icon-button"
+                    title="Delete selection"
+                    aria-label="Delete selection"
+                    onClick={deleteSelectedLayers}
+                    disabled={selectedLayerIds.length === 0}
+                  >
+                    <span className="material-symbols-outlined" aria-hidden="true">
+                      delete
+                    </span>
+                  </button>
+                </div>
+              </>
+            ) : null
+          }
           content={
           <>
             <div className="layer-list">
               {currentSurface.layers.length === 0 ? <div className="empty-state">No items on this side yet.</div> : null}
-              {currentSurface.layers.map((layer, index) => (
+              {currentSurface.layers.map((layer) => (
                 <div
                   key={layer.id}
                   className={`layer-row ${layer.id === selectedLayerId ? "layer-row--active" : ""} ${
@@ -1834,12 +1881,10 @@ export const DesignerApp = () => {
                     }
                   }}
                 >
-                  {isEditableProject ? <span className="layer-row__grip" aria-hidden="true" /> : <span className="layer-row__index">{index + 1}</span>}
-                  <span
-                    className={`layer-row__preview layer-row__preview--${layer.type}`}
-                    style={layer.type === "shape" ? { background: String(layer.metadata.fill ?? "#dbe8ff") } : undefined}
-                  >
-                    {layer.type === "shape" ? null : layerPreviewText(layer)}
+                  <span className={`layer-row__preview layer-row__preview--${layer.type}`}>
+                    <span className="material-symbols-outlined" aria-hidden="true">
+                      {layerPreviewIcon(layer)}
+                    </span>
                   </span>
                   <span className="layer-row__content">
                     <strong>{layer.name}</strong>
@@ -2049,36 +2094,77 @@ export const DesignerApp = () => {
             rightPanel === "edit" ? (
               <>
                 {isEditableProject ? (
-                  <>
-                    <button type="button" className="button--ghost" onClick={undoChange} disabled={historyPast.length === 0}>
-                      Undo
+                  <div className="workspace-tool-group">
+                    <button
+                      type="button"
+                      className="workspace-tool-button workspace-tool-button--icon"
+                      onClick={undoChange}
+                      disabled={historyPast.length === 0}
+                      aria-label="Undo"
+                      title="Undo"
+                    >
+                      <span className="material-symbols-outlined" aria-hidden="true">
+                        undo
+                      </span>
                     </button>
-                    <button type="button" className="button--ghost" onClick={redoChange} disabled={historyFuture.length === 0}>
-                      Redo
+                    <button
+                      type="button"
+                      className="workspace-tool-button workspace-tool-button--icon"
+                      onClick={redoChange}
+                      disabled={historyFuture.length === 0}
+                      aria-label="Redo"
+                      title="Redo"
+                    >
+                      <span className="material-symbols-outlined" aria-hidden="true">
+                        redo
+                      </span>
                     </button>
-                  </>
+                  </div>
                 ) : null}
-                <button type="button" className="button--ghost" onClick={() => setZoom((value) => clamp(value - 0.1, 0.5, 2))}>
-                  -
-                </button>
-                <button type="button" className="button--ghost" onClick={() => setZoom(1)}>
-                  Fit
-                </button>
-                <button type="button" className="button--ghost" onClick={() => setZoom((value) => clamp(value + 0.1, 0.5, 2))}>
-                  +
-                </button>
-                <span className="badge badge--neutral">{Math.round(zoom * 100)}%</span>
+                <div className="workspace-tool-group workspace-tool-group--zoom">
+                  <button
+                    type="button"
+                    className="workspace-tool-button workspace-tool-button--icon"
+                    onClick={() => setZoom((value) => clamp(value - 0.1, 0.5, 2))}
+                    aria-label="Zoom out"
+                    title="Zoom out"
+                  >
+                    <span className="material-symbols-outlined" aria-hidden="true">
+                      remove
+                    </span>
+                  </button>
+                  <button type="button" className="workspace-tool-button workspace-tool-button--label" onClick={() => setZoom(1)}>
+                    Fit
+                  </button>
+                  <button
+                    type="button"
+                    className="workspace-tool-button workspace-tool-button--icon"
+                    onClick={() => setZoom((value) => clamp(value + 0.1, 0.5, 2))}
+                    aria-label="Zoom in"
+                    title="Zoom in"
+                  >
+                    <span className="material-symbols-outlined" aria-hidden="true">
+                      add
+                    </span>
+                  </button>
+                  <span className="workspace-tool-group__divider" aria-hidden="true" />
+                  <span className="workspace-tool-zoom-label">{Math.round(zoom * 100)}%</span>
+                </div>
               </>
-              ) : null
+            ) : null
           }
           actions={
-            <>
-              <button type="button" className="button--ghost" onClick={() => setOverlay("menu")}>
-                <span className="material-symbols-outlined" aria-hidden="true">
-                  more_horiz
-                </span>
-              </button>
-            </>
+            <button
+              type="button"
+              className="workspace-tool-button workspace-tool-button--icon"
+              onClick={() => setOverlay("menu")}
+              aria-label="More actions"
+              title="More actions"
+            >
+              <span className="material-symbols-outlined" aria-hidden="true">
+                more_horiz
+              </span>
+            </button>
           }
         />
 
@@ -2141,7 +2227,7 @@ export const DesignerApp = () => {
                   <span className={selectedLayerLayoutStatus.tone}>{selectedLayerLayoutStatus.text}</span>
                 </div>
               ) : null}
-              {isEditableProject && rightPanel === "edit" && (selectedLayer || multiSelectionActive) ? (
+              {isEditableProject && rightPanel === "edit" && (cropMode || multiSelectionActive) ? (
                 <div className={`selection-toolbar ${cropMode ? "selection-toolbar--crop" : ""}`}>
                   <div className="selection-toolbar__intro">
                     <strong>{multiSelectionActive ? `${selectedLayerIds.length} items selected` : selectedLayer?.name}</strong>
@@ -2266,6 +2352,15 @@ export const DesignerApp = () => {
                       <strong>Start this side</strong>
                       <p>Use the left toolbar to add text, images, or shapes.</p>
                     </div>
+                  ) : null}
+                  {currentSurface.layers.length > 0 ? (
+                    <DesignerStagePreview
+                      surface={currentSurface}
+                      scale={effectiveScale}
+                      selectedLayerIds={selectedLayerIds}
+                      assetUrls={localAssetUrls}
+                      onSelectLayerIds={selectLayerIds}
+                    />
                   ) : null}
                   <FabricCanvasStage
                     ref={stageRef}

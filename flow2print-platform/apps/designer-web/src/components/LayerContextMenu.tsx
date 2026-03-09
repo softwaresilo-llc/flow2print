@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState, type RefObject } from "react";
 
 interface LayerContextMenuProps {
   x: number;
@@ -16,6 +16,9 @@ interface LayerContextMenuProps {
   onCenter: () => void;
   onDelete: () => void;
   onUngroup?: () => void;
+  onGroupSelection?: () => void;
+  canGroupSelection?: boolean;
+  menuRef?: RefObject<HTMLDivElement | null>;
 }
 
 export const LayerContextMenu = ({
@@ -33,10 +36,14 @@ export const LayerContextMenu = ({
   onSendBackward,
   onCenter,
   onDelete,
-  onUngroup
+  onUngroup,
+  onGroupSelection,
+  canGroupSelection = false,
+  menuRef: externalMenuRef
 }: LayerContextMenuProps) => {
-  const menuRef = useRef<HTMLDivElement | null>(null);
+  const internalMenuRef = useRef<HTMLDivElement | null>(null);
   const [position, setPosition] = useState({ left: x, top: y });
+  const menuRef = externalMenuRef ?? internalMenuRef;
 
   useLayoutEffect(() => {
     const menu = menuRef.current;
@@ -91,6 +98,11 @@ export const LayerContextMenu = ({
       <button type="button" onClick={onCenter}>
         Center in safe area
       </button>
+      {canGroupSelection && onGroupSelection ? (
+        <button type="button" onClick={onGroupSelection}>
+          Group selected items
+        </button>
+      ) : null}
       {layerType === "group" && onUngroup ? (
         <button type="button" onClick={onUngroup}>
           Ungroup

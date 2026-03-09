@@ -35,6 +35,34 @@ import {
   writeObjectBuffer
 } from "./asset-upload.js";
 
+const buildLegacyAssetSvg = (asset: {
+  filename: string;
+  widthPx: number | null;
+  heightPx: number | null;
+}) => {
+  const width = Math.max(800, asset.widthPx ?? 1200);
+  const height = Math.max(500, asset.heightPx ?? 800);
+  const label = asset.filename.replace(/[<&>"]/g, "");
+  return Buffer.from(
+    `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#edf4ff"/>
+      <stop offset="100%" stop-color="#dbe7f8"/>
+    </linearGradient>
+  </defs>
+  <rect width="${width}" height="${height}" rx="28" fill="url(#bg)"/>
+  <rect x="48" y="48" width="${width - 96}" height="${height - 96}" rx="22" fill="#ffffff" stroke="#bfd0e7" stroke-width="6"/>
+  <text x="88" y="${Math.round(height * 0.34)}" fill="#2f4f83" font-size="${Math.round(width * 0.06)}" font-family="Georgia, 'Times New Roman', serif">${label}</text>
+  <text x="88" y="${Math.round(height * 0.48)}" fill="#456790" font-size="${Math.round(width * 0.038)}" font-family="Arial, sans-serif">Legacy asset record without uploaded binary</text>
+  <text x="88" y="${Math.round(height * 0.58)}" fill="#70839d" font-size="${Math.round(width * 0.026)}" font-family="Arial, sans-serif">Upload a real image to replace this preview.</text>
+  <rect x="${Math.round(width * 0.72)}" y="70" width="${Math.round(width * 0.16)}" height="${Math.round(height * 0.68)}" rx="18" fill="#e7eef9" stroke="#c7d6ea" stroke-width="4"/>
+</svg>`,
+    "utf8"
+  );
+};
+
 const readRequestBody = async (request: FastifyRequest) => {
   const parsedBody = request.body;
   if (Buffer.isBuffer(parsedBody)) {
@@ -99,6 +127,7 @@ export class AssetsController {
   }
 
   @Post("upload-intent")
+  @Public()
   @UseGuards(AdminGuard)
   @ApiOperation({ summary: "Create an upload intent for a new binary asset" })
   async createUploadIntent(@Body() body: CreateAssetUploadIntentDto) {
@@ -138,6 +167,7 @@ export class AssetsController {
   }
 
   @Put("uploads/:id")
+  @Public()
   @UseGuards(AdminGuard)
   @ApiOperation({ summary: "Upload binary data for a pending asset" })
   async uploadBinary(@Param("id") id: string, @Req() request: FastifyRequest) {
@@ -168,6 +198,7 @@ export class AssetsController {
   }
 
   @Post(":id/confirm-upload")
+  @Public()
   @UseGuards(AdminGuard)
   @ApiOperation({ summary: "Validate and finalize a previously uploaded asset" })
   async confirmUpload(@Param("id") id: string, @Body() body: ConfirmAssetUploadDto) {
@@ -228,8 +259,19 @@ export class AssetsController {
   @ApiOperation({ summary: "Stream the original uploaded file for an asset" })
   async getFile(@Param("id") id: string, @Res({ passthrough: true }) response: FastifyReply) {
     const asset = await this.store.instance.getAsset(id);
-    if (!asset || !asset.originalObjectKey) {
+    if (!asset) {
       throw new NotFoundException("asset_not_found");
+    }
+
+    if (!asset.originalObjectKey && asset.kind === "image") {
+      const buffer = buildLegacyAssetSvg(asset);
+      response.header("Content-Type", "image/svg+xml; charset=utf-8");
+      response.header("Content-Disposition", `inline; filename="${asset.filename.replace(/\.[^.]+$/, "")}.svg"`);
+      response.header("Cache-Control", "public, max-age=300");
+      return new StreamableFile(buffer);
+    }
+    if (!asset.originalObjectKey) {
+      throw new NotFoundException("asset_file_missing");
     }
 
     const buffer = await readObjectBuffer(asset.originalObjectKey);

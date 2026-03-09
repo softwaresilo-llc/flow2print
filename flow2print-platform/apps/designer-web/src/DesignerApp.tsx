@@ -17,10 +17,12 @@ import { DesignerPreviewPanel } from "./components/DesignerPreviewPanel";
 import { DesignerReviewPanel } from "./components/DesignerReviewPanel";
 import { DesignerSideFilmstrip } from "./components/DesignerSideFilmstrip";
 import { DesignerStagePreview } from "./components/DesignerStagePreview";
+import { DesignerCanvasContextMenu } from "./components/DesignerCanvasContextMenu";
 import { DesignerToolRail } from "./components/DesignerToolRail";
 import { DesignerWorkspaceTopbar } from "./components/DesignerWorkspaceTopbar";
 import { FabricCanvasStage, type FabricCanvasStageHandle } from "./components/FabricCanvasStage";
 import { LayerContextMenu } from "./components/LayerContextMenu";
+import { designerElementRegistry } from "./components/designerElementRegistry";
 
 const trimTrailingSlash = (value: string) => value.replace(/\/+$/, "");
 const browserOrigin =
@@ -325,6 +327,174 @@ const insertLayerIntoGroupTree = (
     };
   });
 
+const insertLayerBeforeTargetTree = (
+  layers: DesignerLayer[],
+  targetId: string,
+  layerToInsert: DesignerLayer
+): { layers: DesignerLayer[]; inserted: boolean } => {
+  for (let index = 0; index < layers.length; index += 1) {
+    const layer = layers[index];
+    if (layer.id === targetId) {
+      return {
+        layers: [...layers.slice(0, index), deepCloneLayer(layerToInsert), layer, ...layers.slice(index + 1)],
+        inserted: true
+      };
+    }
+
+    const children = getGroupChildren(layer);
+    if (children.length > 0) {
+      const childResult = insertLayerBeforeTargetTree(children, targetId, layerToInsert);
+      if (childResult.inserted) {
+        const nextLayers = [...layers];
+        nextLayers[index] = {
+          ...layer,
+          metadata: {
+            ...layer.metadata,
+            children: childResult.layers
+          }
+        };
+        return {
+          layers: nextLayers,
+          inserted: true
+        };
+      }
+    }
+  }
+
+  return { layers, inserted: false };
+};
+
+const replaceGroupWithChildrenTree = (
+  layers: DesignerLayer[],
+  groupId: string
+): { layers: DesignerLayer[]; children: DesignerLayer[] } => {
+  for (let index = 0; index < layers.length; index += 1) {
+    const layer = layers[index];
+    if (layer.id === groupId && isGroupLayer(layer)) {
+      const children = getGroupChildren(layer).map((child) => deepCloneLayer(child));
+      return {
+        layers: [...layers.slice(0, index), ...children, ...layers.slice(index + 1)],
+        children
+      };
+    }
+
+    const children = getGroupChildren(layer);
+    if (children.length > 0) {
+      const childResult = replaceGroupWithChildrenTree(children, groupId);
+      if (childResult.children.length > 0) {
+        const nextLayers = [...layers];
+        nextLayers[index] = {
+          ...layer,
+          metadata: {
+            ...layer.metadata,
+            children: childResult.layers
+          }
+        };
+        return { layers: nextLayers, children: childResult.children };
+      }
+    }
+  }
+
+  return { layers, children: [] };
+};
+
+const duplicateLayerWithinTree = (
+  layers: DesignerLayer[],
+  layerId: string,
+  duplicateFactory: (layer: DesignerLayer) => DesignerLayer
+): { layers: DesignerLayer[]; duplicatedLayer: DesignerLayer | null } => {
+  for (let index = 0; index < layers.length; index += 1) {
+    const layer = layers[index];
+    if (layer.id === layerId) {
+      const duplicatedLayer = duplicateFactory(layer);
+      return {
+        layers: [...layers.slice(0, index + 1), duplicatedLayer, ...layers.slice(index + 1)],
+        duplicatedLayer
+      };
+    }
+
+    const children = getGroupChildren(layer);
+    if (children.length > 0) {
+      const childResult = duplicateLayerWithinTree(children, layerId, duplicateFactory);
+      if (childResult.duplicatedLayer) {
+        const nextLayers = [...layers];
+        nextLayers[index] = {
+          ...layer,
+          metadata: {
+            ...layer.metadata,
+            children: childResult.layers
+          }
+        };
+        return {
+          layers: nextLayers,
+          duplicatedLayer: childResult.duplicatedLayer
+        };
+      }
+    }
+  }
+
+  return { layers, duplicatedLayer: null };
+};
+
+const groupSiblingLayers = (layers: DesignerLayer[], selectedSet: Set<string>, groupLayer: DesignerLayer): DesignerLayer[] => {
+  const selectedIndexes = layers
+    .map((layer, index) => (selectedSet.has(layer.id) ? index : -1))
+    .filter((index) => index >= 0);
+  if (selectedIndexes.length < 2) {
+    return layers;
+  }
+  const insertIndex = Math.min(...selectedIndexes);
+  const nextLayers: DesignerLayer[] = [];
+  let inserted = false;
+  layers.forEach((layer, index) => {
+    if (index === insertIndex && !inserted) {
+      nextLayers.push(groupLayer);
+      inserted = true;
+    }
+    if (!selectedSet.has(layer.id)) {
+      nextLayers.push(layer);
+    }
+  });
+  if (!inserted) {
+    nextLayers.push(groupLayer);
+  }
+  return nextLayers;
+};
+
+const groupLayersWithinParentTree = (
+  layers: DesignerLayer[],
+  parentGroupId: string | null,
+  selectedSet: Set<string>,
+  groupLayer: DesignerLayer
+): DesignerLayer[] => {
+  if (!parentGroupId) {
+    return groupSiblingLayers(layers, selectedSet, groupLayer);
+  }
+
+  return layers.map((layer) => {
+    if (layer.id === parentGroupId && isGroupLayer(layer)) {
+      return {
+        ...layer,
+        metadata: {
+          ...layer.metadata,
+          children: groupSiblingLayers(getGroupChildren(layer), selectedSet, groupLayer)
+        }
+      };
+    }
+    const children = getGroupChildren(layer);
+    if (children.length === 0) {
+      return layer;
+    }
+    return {
+      ...layer,
+      metadata: {
+        ...layer.metadata,
+        children: groupLayersWithinParentTree(children, parentGroupId, selectedSet, groupLayer)
+      }
+    };
+  });
+};
+
 const pruneUnusedDocumentAssets = (document: Flow2PrintDocument): Flow2PrintDocument => {
   const usedAssetIds = new Set(
     document.surfaces.flatMap((surface) =>
@@ -382,6 +552,14 @@ const layerPreviewIcon = (layer: DesignerLayer) => {
 
 const getPreferredLayerId = (surface: DesignerSurface | undefined) =>
   surface?.layers.find((layer) => layer.type === "text")?.id ?? surface?.layers[0]?.id ?? null;
+
+const isLayerDescendantOf = (layers: DesignerLayer[], potentialAncestorId: string, layerId: string): boolean => {
+  const ancestor = findLayerInTree(layers, potentialAncestorId)?.layer;
+  if (!ancestor || ancestor.type !== "group") {
+    return false;
+  }
+  return flattenLayerTree(getGroupChildren(ancestor)).some((entry) => entry.id === layerId);
+};
 
 const readJson = async <T,>(response: Response) => {
   if (!response.ok) {
@@ -450,8 +628,6 @@ export const DesignerApp = () => {
   const [snapEnabled, setSnapEnabled] = useState(true);
   const [leftPanel, setLeftPanel] = useState<"layers" | "assets" | "history">("layers");
   const [assetSearchQuery, setAssetSearchQuery] = useState("");
-  const [editingTextLayerId, setEditingTextLayerId] = useState<string | null>(null);
-  const [editingTextValue, setEditingTextValue] = useState("");
   const [rightPanel, setRightPanel] = useState<"edit" | "review" | "finish">("edit");
   const [cropMode, setCropMode] = useState(false);
   const [viewportSize, setViewportSize] = useState(() => ({
@@ -474,6 +650,10 @@ export const DesignerApp = () => {
     y: number;
     assetId: string;
   } | null>(null);
+  const [canvasContextMenu, setCanvasContextMenu] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
   const [draggingLayerId, setDraggingLayerId] = useState<string | null>(null);
   const [dropTargetLayerId, setDropTargetLayerId] = useState<string | null>(null);
   const [expandedGroupIds, setExpandedGroupIds] = useState<string[]>([]);
@@ -485,6 +665,10 @@ export const DesignerApp = () => {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const stageRef = useRef<FabricCanvasStageHandle | null>(null);
   const stageViewportRef = useRef<HTMLDivElement | null>(null);
+  const layerMenuRef = useRef<HTMLDivElement | null>(null);
+  const assetMenuRef = useRef<HTMLDivElement | null>(null);
+  const layerMenuAnchorRef = useRef<Element | null>(null);
+  const assetMenuAnchorRef = useRef<Element | null>(null);
   const panSessionRef = useRef<null | {
     startX: number;
     startY: number;
@@ -642,7 +826,19 @@ export const DesignerApp = () => {
   const selectedLayers = flattenedSurfaceLayers.filter((layer) => selectedLayerIds.includes(layer.id));
   const isCompactViewport = viewportSize.width <= 720;
   const multiSelectionActive = selectedLayerIds.length > 1;
-  const canGroupSelection = multiSelectionActive && selectedLayers.every((layer) => layer.type !== "group");
+  const canGroupSelection = useMemo(() => {
+    if (!currentSurface || selectedLayerIds.length < 2) {
+      return false;
+    }
+    const matches = selectedLayerIds
+      .map((layerId) => findLayerInTree(currentSurface.layers, layerId))
+      .filter((entry): entry is { layer: DesignerLayer; parentGroupId: string | null } => Boolean(entry));
+    if (matches.length !== selectedLayerIds.length) {
+      return false;
+    }
+    const parentGroupId = matches[0]?.parentGroupId ?? null;
+    return matches.every((entry) => entry.parentGroupId === parentGroupId && entry.layer.type !== "group");
+  }, [currentSurface, selectedLayerIds]);
   const canDistributeSelection = selectedLayerIds.length > 2;
   const canUngroupSelection = !multiSelectionActive && selectedLayer?.type === "group";
 
@@ -719,7 +915,7 @@ export const DesignerApp = () => {
       setSelectedLayerId(null);
       return;
     }
-    if (!selectedLayerId || !surface.layers.some((layer) => layer.id === selectedLayerId)) {
+    if (!selectedLayerId || !flattenLayerTree(surface.layers).some((layer) => layer.id === selectedLayerId)) {
       const nextLayerId = getPreferredLayerId(surface);
       setSelectedLayerIds(nextLayerId ? [nextLayerId] : []);
       setSelectedLayerId(nextLayerId);
@@ -750,30 +946,51 @@ export const DesignerApp = () => {
   }, [selectedLayer]);
 
   useEffect(() => {
-    if (!contextMenu && !assetContextMenu) {
+    if (!contextMenu && !assetContextMenu && !canvasContextMenu) {
       return;
     }
 
     const close = () => {
       setContextMenu(null);
       setAssetContextMenu(null);
+      setCanvasContextMenu(null);
+      layerMenuAnchorRef.current = null;
+      assetMenuAnchorRef.current = null;
     };
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         close();
       }
     };
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (!target) {
+        close();
+        return;
+      }
 
-    window.addEventListener("pointerdown", close);
+      if (
+        layerMenuRef.current?.contains(target) ||
+        assetMenuRef.current?.contains(target) ||
+        layerMenuAnchorRef.current?.contains(target) ||
+        assetMenuAnchorRef.current?.contains(target)
+      ) {
+        return;
+      }
+
+      close();
+    };
+
     window.addEventListener("keydown", handleKeyDown);
     window.addEventListener("scroll", close, true);
+    window.addEventListener("pointerdown", handlePointerDown, true);
 
     return () => {
-      window.removeEventListener("pointerdown", close);
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("scroll", close, true);
+      window.removeEventListener("pointerdown", handlePointerDown, true);
     };
-  }, [assetContextMenu, contextMenu]);
+  }, [assetContextMenu, canvasContextMenu, contextMenu]);
 
   useEffect(() => {
     const handlePointerMove = (event: PointerEvent) => {
@@ -982,8 +1199,14 @@ export const DesignerApp = () => {
     if (!isEditableProject) {
       return;
     }
-    setSelectedLayerIds([layerId]);
-    setSelectedLayerId(layerId);
+    if (selectedLayerIds.includes(layerId) && selectedLayerIds.length > 1) {
+      setSelectedLayerId((currentId) => currentId ?? layerId);
+    } else {
+      setSelectedLayerIds([layerId]);
+      setSelectedLayerId(layerId);
+    }
+    setAssetContextMenu(null);
+    setCanvasContextMenu(null);
     setContextMenu({
       x: "clientX" in event ? event.clientX : 0,
       y: "clientY" in event ? event.clientY : 0,
@@ -992,6 +1215,7 @@ export const DesignerApp = () => {
   };
 
   const openLayerContextMenuFromElement = (element: Element, layerId: string) => {
+    layerMenuAnchorRef.current = element;
     const rect = element.getBoundingClientRect();
     openLayerContextMenu(
       {
@@ -1004,6 +1228,9 @@ export const DesignerApp = () => {
   };
 
   const openLayerContextMenuAt = (x: number, y: number, layerId: string) => {
+    layerMenuAnchorRef.current = null;
+    setCanvasContextMenu(null);
+    setAssetContextMenu(null);
     openLayerContextMenu(
       {
         preventDefault: () => undefined,
@@ -1014,17 +1241,38 @@ export const DesignerApp = () => {
     );
   };
 
-  const openAssetContextMenuFromElement = (element: Element, assetId: string) => {
+  const openAssetContextMenuAt = (x: number, y: number, assetId: string) => {
     if (!isEditableProject) {
       return;
     }
-    const rect = element.getBoundingClientRect();
+    assetMenuAnchorRef.current = null;
+    layerMenuAnchorRef.current = null;
+    setCanvasContextMenu(null);
     setContextMenu(null);
     setAssetContextMenu({
-      x: rect.right - 8,
-      y: rect.bottom + 6,
+      x,
+      y,
       assetId
     });
+  };
+
+  const scheduleLayerContextMenuOpen = (element: Element, layerId: string) => {
+    openLayerContextMenuFromElement(element, layerId);
+  };
+
+  const scheduleAssetContextMenuOpen = (x: number, y: number, assetId: string) => {
+    openAssetContextMenuAt(x, y, assetId);
+  };
+
+  const openCanvasContextMenuAt = (x: number, y: number) => {
+    if (!isEditableProject) {
+      return;
+    }
+    setContextMenu(null);
+    setAssetContextMenu(null);
+    layerMenuAnchorRef.current = null;
+    assetMenuAnchorRef.current = null;
+    setCanvasContextMenu({ x, y });
   };
 
   const updateLayerNumericField = (field: "x" | "y" | "width" | "height" | "rotation" | "opacity", value: string) => {
@@ -1152,7 +1400,7 @@ export const DesignerApp = () => {
     captureHistory(isDivider ? "Add divider" : "Add shape");
     const layerId = `lyr_${crypto.randomUUID()}`;
     const itemWidth = isDivider ? Math.max(56, currentSurface.safeBox.width - 8) : 32;
-    const itemHeight = isDivider ? 4 : 20;
+    const itemHeight = isDivider ? 0.8 : 20;
     const position = getNextInsertPosition(currentSurface, itemWidth, itemHeight);
     updateCurrentSurface((surface) => ({
       ...surface,
@@ -1420,7 +1668,7 @@ export const DesignerApp = () => {
 
     setSaving(true);
     try {
-      const response = await fetch(resolveApiUrl("/v1/assets"), {
+      const uploadIntentResponse = await fetch(resolveApiUrl("/v1/assets/upload-intent"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
@@ -1429,11 +1677,35 @@ export const DesignerApp = () => {
           filename: file.name,
           kind: "image",
           mimeType: file.type || "application/octet-stream",
+          sizeBytes: file.size
+        })
+      });
+      const uploadIntent = await readJson<{
+        assetId: string;
+        uploadUrl: string;
+        confirmUrl: string;
+      }>(uploadIntentResponse);
+      const uploadResponse = await fetch(resolveApiUrl(uploadIntent.uploadUrl), {
+        method: "PUT",
+        headers: {
+          "Content-Type": file.type || "application/octet-stream"
+        },
+        body: file
+      });
+      if (!uploadResponse.ok) {
+        throw new Error(`asset_upload_failed:${uploadResponse.status}`);
+      }
+      const confirmResponse = await fetch(resolveApiUrl(uploadIntent.confirmUrl), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
           widthPx: dimensions.width,
           heightPx: dimensions.height
         })
       });
-      const asset = await readJson<AssetRecord>(response);
+      const asset = await readJson<AssetRecord>(confirmResponse);
       setAssets((currentAssets) => [asset, ...currentAssets]);
       setLocalAssetUrls((currentUrls) => ({ ...currentUrls, [asset.id]: objectUrl }));
       const alreadyLinked = draftDocument.assets.some((entry) => entry.assetId === asset.id);
@@ -1499,6 +1771,9 @@ export const DesignerApp = () => {
         setSelectedLayerIds([layerId]);
         setSelectedLayerId(layerId);
       }
+    } catch (error) {
+      URL.revokeObjectURL(objectUrl);
+      console.error("Failed to upload asset", error);
     } finally {
       setSaving(false);
       setFilePickerMode("insert");
@@ -1521,6 +1796,31 @@ export const DesignerApp = () => {
             ? {
                 ...surface,
                 layers: removeLayerFromTree(surface.layers, selectedLayerId).layers
+              }
+            : surface
+        )
+      })
+    );
+    const nextLayerId = flattenLayerTree(nextLayersResult.layers)[0]?.id ?? null;
+    setSelectedLayerIds(nextLayerId ? [nextLayerId] : []);
+    setSelectedLayerId(nextLayerId);
+  };
+
+  const deleteLayerById = (layerId: string) => {
+    if (!currentSurface) {
+      return;
+    }
+    setContextMenu(null);
+    captureHistory("Delete item");
+    const nextLayersResult = removeLayerFromTree(currentSurface.layers, layerId);
+    updateDraftDocument((document) =>
+      pruneUnusedDocumentAssets({
+        ...document,
+        surfaces: document.surfaces.map((surface, index) =>
+          index === selectedSurfaceIndex
+            ? {
+                ...surface,
+                layers: removeLayerFromTree(surface.layers, layerId).layers
               }
             : surface
         )
@@ -1614,6 +1914,41 @@ export const DesignerApp = () => {
     setSelectedLayerId(layerId);
   };
 
+  const duplicateLayerById = (layerId: string) => {
+    if (!currentSurface) {
+      return;
+    }
+    const sourceLayer = findLayerInTree(currentSurface.layers, layerId)?.layer ?? null;
+    if (!sourceLayer) {
+      return;
+    }
+    setContextMenu(null);
+    captureHistory("Duplicate item");
+    let duplicatedLayerId: string | null = null;
+    updateCurrentSurface((surface) => {
+      const duplicateResult = duplicateLayerWithinTree(surface.layers, layerId, (layer) => {
+        const nextId = `lyr_${crypto.randomUUID()}`;
+        duplicatedLayerId = nextId;
+        return {
+          ...deepCloneLayer(layer),
+          id: nextId,
+          name: `${layer.name} copy`,
+          x: Math.min(layer.x + 6, Math.max(0, surface.artboard.width - layer.width)),
+          y: Math.min(layer.y + 6, Math.max(0, surface.artboard.height - layer.height))
+        };
+      });
+      return {
+        ...surface,
+        layers: duplicateResult.layers
+      };
+    });
+    if (duplicatedLayerId) {
+      setSelectedLayerIds([duplicatedLayerId]);
+      setSelectedLayerId(duplicatedLayerId);
+      stageRef.current?.selectLayerIds([duplicatedLayerId]);
+    }
+  };
+
   const toggleSelectedLayerFlag = (field: "visible" | "locked") => {
     setContextMenu(null);
     captureHistory(field === "visible" ? "Toggle visibility" : "Toggle lock");
@@ -1623,10 +1958,37 @@ export const DesignerApp = () => {
     }));
   };
 
+  const toggleLayerFlagById = (layerId: string, field: "visible" | "locked") => {
+    setContextMenu(null);
+    captureHistory(field === "visible" ? "Toggle visibility" : "Toggle lock");
+    updateCurrentSurface((surface) => ({
+      ...surface,
+      layers: updateLayerTree(surface.layers, layerId, (layer) => ({
+        ...layer,
+        [field]: !layer[field]
+      }))
+    }));
+    setSelectedLayerIds([layerId]);
+    setSelectedLayerId(layerId);
+    stageRef.current?.selectLayerIds([layerId]);
+  };
+
   const moveSelectedLayer = (direction: "forward" | "backward") => {
     if (!selectedLayerIds.length) {
       return;
     }
+    setContextMenu(null);
+    if (direction === "forward") {
+      stageRef.current?.bringForward();
+      return;
+    }
+    stageRef.current?.sendBackward();
+  };
+
+  const moveLayerById = (layerId: string, direction: "forward" | "backward") => {
+    setSelectedLayerIds([layerId]);
+    setSelectedLayerId(layerId);
+    stageRef.current?.selectLayerIds([layerId]);
     setContextMenu(null);
     if (direction === "forward") {
       stageRef.current?.bringForward();
@@ -1662,23 +2024,60 @@ export const DesignerApp = () => {
     });
   };
 
+  const alignLayerById = (layerId: string, mode: "left" | "center" | "right" | "top" | "middle" | "bottom") => {
+    if (!currentSurface) {
+      return;
+    }
+    setContextMenu(null);
+    captureHistory(`Align ${mode}`);
+    const safe = currentSurface.safeBox;
+    updateCurrentSurface((surface) => ({
+      ...surface,
+      layers: updateLayerTree(surface.layers, layerId, (layer) => {
+        if (mode === "left") {
+          return { ...layer, x: safe.x };
+        }
+        if (mode === "center") {
+          return { ...layer, x: Math.round((safe.x + (safe.width - layer.width) / 2) * 10) / 10 };
+        }
+        if (mode === "right") {
+          return { ...layer, x: Math.round((safe.x + safe.width - layer.width) * 10) / 10 };
+        }
+        if (mode === "top") {
+          return { ...layer, y: safe.y };
+        }
+        if (mode === "middle") {
+          return { ...layer, y: Math.round((safe.y + (safe.height - layer.height) / 2) * 10) / 10 };
+        }
+        return { ...layer, y: Math.round((safe.y + safe.height - layer.height) * 10) / 10 };
+      })
+    }));
+    setSelectedLayerIds([layerId]);
+    setSelectedLayerId(layerId);
+    stageRef.current?.selectLayerIds([layerId]);
+  };
+
   const reorderLayer = (fromLayerId: string, toLayerId: string) => {
     if (!currentSurface || fromLayerId === toLayerId) {
       return;
     }
+    const sourceLayer = findLayerInTree(currentSurface.layers, fromLayerId)?.layer ?? null;
+    if (!sourceLayer) {
+      return;
+    }
     captureHistory("Reorder layers");
     updateCurrentSurface((surface) => {
-      const fromIndex = surface.layers.findIndex((layer) => layer.id === fromLayerId);
-      const toIndex = surface.layers.findIndex((layer) => layer.id === toLayerId);
-      if (fromIndex === -1 || toIndex === -1 || fromIndex === toIndex) {
+      const removalResult = removeLayerFromTree(surface.layers, fromLayerId);
+      if (!removalResult.removed) {
         return surface;
       }
-      const nextLayers = [...surface.layers];
-      const [moved] = nextLayers.splice(fromIndex, 1);
-      nextLayers.splice(toIndex, 0, moved);
+      const insertionResult = insertLayerBeforeTargetTree(removalResult.layers, toLayerId, sourceLayer);
+      if (!insertionResult.inserted) {
+        return surface;
+      }
       return {
         ...surface,
-        layers: nextLayers
+        layers: insertionResult.layers
       };
     });
   };
@@ -1690,6 +2089,9 @@ export const DesignerApp = () => {
     const sourceLayer = findLayerInTree(currentSurface.layers, fromLayerId)?.layer ?? null;
     const targetLayer = findLayerInTree(currentSurface.layers, targetGroupId)?.layer ?? null;
     if (!sourceLayer || !targetLayer || targetLayer.type !== "group") {
+      return;
+    }
+    if (sourceLayer.type === "group" && isLayerDescendantOf(currentSurface.layers, fromLayerId, targetGroupId)) {
       return;
     }
     captureHistory("Move item into group");
@@ -1753,65 +2155,32 @@ export const DesignerApp = () => {
     setSelectedLayerId(layerId);
   };
 
-  const beginInlineTextEdit = (layer: DesignerLayer) => {
-    if (!isEditableProject || layer.type !== "text" || layer.locked) {
-      return;
-    }
-    setSelectedLayerIds([layer.id]);
-    setSelectedLayerId(layer.id);
-    setEditingTextLayerId(layer.id);
-    setEditingTextValue(String(layer.metadata.text ?? ""));
-  };
-
-  const commitInlineTextEdit = () => {
-    if (!editingTextLayerId) {
-      return;
-    }
-    const nextValue = editingTextValue;
-    captureHistory("Edit text on canvas");
-    updateCurrentSurface((surface) => ({
-      ...surface,
-      layers: surface.layers.map((layer) =>
-        layer.id === editingTextLayerId && layer.type === "text"
-          ? {
-              ...layer,
-              metadata: {
-                ...layer.metadata,
-                text: nextValue
-              }
-            }
-          : layer
-      )
-    }));
-    setEditingTextLayerId(null);
-    setEditingTextValue("");
-  };
-
-  const cancelInlineTextEdit = () => {
-    setEditingTextLayerId(null);
-    setEditingTextValue("");
-  };
-
   const groupSelectedLayers = () => {
     if (!currentSurface || selectedLayerIds.length < 2) {
       return;
     }
-    const selectedSet = new Set(selectedLayerIds);
-    const selectedLayers = currentSurface.layers.filter((layer) => selectedSet.has(layer.id));
-    if (selectedLayers.length < 2) {
+    const matches = selectedLayerIds
+      .map((layerId) => findLayerInTree(currentSurface.layers, layerId))
+      .filter((entry): entry is { layer: DesignerLayer; parentGroupId: string | null } => Boolean(entry));
+    if (matches.length < 2) {
       return;
     }
+    const parentGroupId = matches[0]?.parentGroupId ?? null;
+    if (matches.some((entry) => entry.parentGroupId !== parentGroupId || entry.layer.type === "group")) {
+      return;
+    }
+    const selectedLayers = matches.map((entry) => entry.layer);
+    const selectedSet = new Set(selectedLayers.map((layer) => layer.id));
     captureHistory("Group items");
     const minX = Math.min(...selectedLayers.map((layer) => layer.x));
     const minY = Math.min(...selectedLayers.map((layer) => layer.y));
     const maxX = Math.max(...selectedLayers.map((layer) => layer.x + layer.width));
     const maxY = Math.max(...selectedLayers.map((layer) => layer.y + layer.height));
-    const insertIndex = currentSurface.layers.findIndex((layer) => selectedSet.has(layer.id));
     const groupId = `lyr_${crypto.randomUUID()}`;
     const groupLayer: DesignerLayer = {
       id: groupId,
       type: "group",
-      name: `Group ${currentSurface.layers.length - selectedLayers.length + 1}`,
+      name: `Group ${flattenLayerTree(currentSurface.layers).filter((layer) => layer.type === "group").length + 1}`,
       visible: true,
       locked: false,
       x: Number(minX.toFixed(2)),
@@ -1825,14 +2194,14 @@ export const DesignerApp = () => {
       }
     };
     updateCurrentSurface((surface) => {
-      const unselected = surface.layers.filter((layer) => !selectedSet.has(layer.id));
-      const nextLayers = [...unselected];
-      nextLayers.splice(Math.max(insertIndex, 0), 0, groupLayer);
       return {
         ...surface,
-        layers: nextLayers
+        layers: groupLayersWithinParentTree(surface.layers, parentGroupId, selectedSet, groupLayer)
       };
     });
+    if (parentGroupId) {
+      setExpandedGroupIds((currentIds) => (currentIds.includes(parentGroupId) ? currentIds : [...currentIds, parentGroupId]));
+    }
     setSelectedLayerIds([groupId]);
     setSelectedLayerId(groupId);
   };
@@ -1841,17 +2210,24 @@ export const DesignerApp = () => {
     if (!selectedLayer || selectedLayer.type !== "group" || !currentSurface) {
       return;
     }
-    const children = Array.isArray(selectedLayer.metadata.children)
-      ? (selectedLayer.metadata.children as DesignerLayer[])
-      : [];
+    ungroupLayerById(selectedLayer.id);
+  };
+
+  const ungroupLayerById = (groupId: string) => {
+    if (!currentSurface) {
+      return;
+    }
+    const groupLayer = findLayerInTree(currentSurface.layers, groupId)?.layer ?? null;
+    if (!groupLayer || groupLayer.type !== "group") {
+      return;
+    }
+    const children = getGroupChildren(groupLayer);
     if (children.length === 0) {
       return;
     }
     captureHistory("Ungroup items");
     updateCurrentSurface((surface) => {
-      const groupIndex = surface.layers.findIndex((layer) => layer.id === selectedLayer.id);
-      const nextLayers = [...surface.layers.filter((layer) => layer.id !== selectedLayer.id)];
-      nextLayers.splice(groupIndex, 0, ...children);
+      const nextLayers = replaceGroupWithChildrenTree(surface.layers, groupId).layers;
       return {
         ...surface,
         layers: nextLayers
@@ -1915,6 +2291,7 @@ export const DesignerApp = () => {
   const handleLayerSelection = (layerId: string, additive = false) => {
     if (!additive) {
       selectLayerIds([layerId]);
+      stageRef.current?.selectLayerIds([layerId]);
       return;
     }
     setSelectedLayerIds((currentIds) => {
@@ -1922,6 +2299,9 @@ export const DesignerApp = () => {
         ? currentIds.filter((currentId) => currentId !== layerId)
         : [...currentIds, layerId];
       setSelectedLayerId(nextIds[0] ?? null);
+      queueMicrotask(() => {
+        stageRef.current?.selectLayerIds(nextIds);
+      });
       return nextIds;
     });
   };
@@ -2144,6 +2524,7 @@ export const DesignerApp = () => {
         (event.key.toLowerCase() === "y" || (event.key.toLowerCase() === "z" && event.shiftKey));
       const isSave = (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s";
       const isDelete = event.key === "Delete" || event.key === "Backspace";
+      const isEnter = event.key === "Enter";
       const step = event.shiftKey ? 5 : 1;
 
       if (isUndo) {
@@ -2163,6 +2544,9 @@ export const DesignerApp = () => {
       } else if (isEditableProject && selectedLayerIds.length > 0 && isDelete) {
         event.preventDefault();
         deleteSelectedLayers();
+      } else if (isEditableProject && isEnter && !cropMode) {
+        event.preventDefault();
+        stageRef.current?.editSelectedText();
       } else if (isEditableProject && selectedLayer && currentSurface && event.key.startsWith("Arrow")) {
         event.preventDefault();
         captureHistory(`Nudge ${event.key.replace("Arrow", "").toLowerCase()}`);
@@ -2186,7 +2570,7 @@ export const DesignerApp = () => {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [currentSurface, hasUnsavedChanges, historyFuture, historyPast, isEditableProject, selectedLayer, selectedLayerIds, snapEnabled]);
+  }, [cropMode, currentSurface, hasUnsavedChanges, historyFuture, historyPast, isEditableProject, selectedLayer, selectedLayerIds, snapEnabled]);
 
   const linkedAssets = useMemo(() => {
     if (!draftDocument) {
@@ -2197,6 +2581,13 @@ export const DesignerApp = () => {
       .filter((asset): asset is AssetRecord => Boolean(asset));
   }, [assets, draftDocument]);
   const availableImageAssets = useMemo(() => assets.filter((asset) => asset.kind === "image"), [assets]);
+  const resolvedAssetUrls = useMemo(
+    () =>
+      Object.fromEntries(
+        availableImageAssets.map((asset) => [asset.id, localAssetUrls[asset.id] ?? resolveApiUrl(`/v1/assets/${asset.id}/file`)])
+      ),
+    [availableImageAssets, localAssetUrls]
+  );
   const filteredImageAssets = useMemo(() => {
     const query = assetSearchQuery.trim().toLowerCase();
     return availableImageAssets
@@ -2208,10 +2599,67 @@ export const DesignerApp = () => {
       })
       .map((asset) => ({
         ...asset,
-        previewUrl: localAssetUrls[asset.id] ?? resolveApiUrl(`/v1/assets/${asset.id}/file`),
+        previewUrl: resolvedAssetUrls[asset.id] ?? null,
         linked: linkedAssets.some((linkedAsset) => linkedAsset.id === asset.id)
       }));
-  }, [assetSearchQuery, availableImageAssets, linkedAssets, localAssetUrls]);
+  }, [assetSearchQuery, availableImageAssets, linkedAssets, resolvedAssetUrls]);
+  const recentImageAssets = useMemo(
+    () =>
+      availableImageAssets.slice(0, 3).map((asset) => ({
+        ...asset,
+        previewUrl: resolvedAssetUrls[asset.id] ?? null,
+        linked: linkedAssets.some((linkedAsset) => linkedAsset.id === asset.id)
+      })),
+    [availableImageAssets, linkedAssets, resolvedAssetUrls]
+  );
+
+  const replaceSelectedImageWithAsset = (asset: AssetRecord) => {
+    if (!selectedLayer || selectedLayer.type !== "image" || !draftDocument) {
+      return;
+    }
+    const alreadyLinked = draftDocument.assets.some((entry) => entry.assetId === asset.id);
+    captureHistory("Replace image");
+    updateDraftDocument((document) => ({
+      ...document,
+      assets: alreadyLinked ? document.assets : [...document.assets, { assetId: asset.id, role: "source" }],
+      surfaces: document.surfaces.map((surface, index) =>
+        index === selectedSurfaceIndex
+          ? {
+              ...surface,
+              layers: updateLayerTree(surface.layers, selectedLayer.id, (layer) => ({
+                ...layer,
+                name: asset.filename,
+                metadata: {
+                  ...layer.metadata,
+                  assetId: asset.id
+                }
+              }))
+            }
+          : surface
+      )
+    }));
+  };
+  const moreElementActions: Record<string, () => void> = useMemo(
+    () => ({
+      qr: addQrLayer,
+      barcode: addBarcodeLayer,
+      table: addTableBlock
+    }),
+    [currentSurface]
+  );
+  const moreElements = useMemo(
+    () =>
+      designerElementRegistry.map((element) => ({
+        ...element,
+        disabled: !isEditableProject,
+        onSelect: () => {
+          moreElementActions[element.id]?.();
+          setOverlay(null);
+          setCanvasContextMenu(null);
+        }
+      })),
+    [isEditableProject, moreElementActions]
+  );
   const recentHistoryEntries = useMemo(
     () =>
       historyPastEntries
@@ -2339,12 +2787,7 @@ export const DesignerApp = () => {
                   draggingLayerId === layer.id ? "layer-row--dragging" : ""
                 } ${dropTargetLayerId === layer.id ? "layer-row--drop-target" : ""}`}
                 style={{ paddingLeft: `${16 + depth * 18}px` }}
-                onClick={(event) => {
-                  handleLayerSelection(layer.id, event.shiftKey || event.metaKey || event.ctrlKey);
-                }}
                 onContextMenu={(event) => openLayerContextMenu(event, layer.id)}
-                role="button"
-                tabIndex={0}
                 draggable={isEditableProject}
                 onDragStart={(event) => {
                   if (!isEditableProject) {
@@ -2371,7 +2814,7 @@ export const DesignerApp = () => {
                   if (fromLayerId) {
                     if (isGroup) {
                       moveLayerIntoGroup(fromLayerId, layer.id);
-                    } else if (depth === 0) {
+                    } else {
                       reorderLayer(fromLayerId, layer.id);
                     }
                   }
@@ -2382,58 +2825,67 @@ export const DesignerApp = () => {
                   setDraggingLayerId(null);
                   setDropTargetLayerId(null);
                 }}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    handleLayerSelection(layer.id);
-                  }
-                }}
               >
-                {isGroup ? (
-                  <button
-                    type="button"
-                    className="layer-row__expander"
-                    aria-label={isExpanded ? "Collapse group" : "Expand group"}
-                    onPointerDown={(event) => {
+                <div
+                  className="layer-row__main"
+                  onClick={(event) => {
+                    handleLayerSelection(layer.id, event.shiftKey || event.metaKey || event.ctrlKey);
+                  }}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
                       event.preventDefault();
-                      event.stopPropagation();
-                    }}
-                    onClick={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      setExpandedGroupIds((currentIds) =>
-                        currentIds.includes(layer.id)
-                          ? currentIds.filter((entry) => entry !== layer.id)
-                          : [...currentIds, layer.id]
-                      );
-                    }}
-                  >
+                      handleLayerSelection(layer.id);
+                    }
+                  }}
+                >
+                  {isGroup ? (
+                    <button
+                      type="button"
+                      className="layer-row__expander"
+                      aria-label={isExpanded ? "Collapse group" : "Expand group"}
+                      onPointerDown={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                      }}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setExpandedGroupIds((currentIds) =>
+                          currentIds.includes(layer.id)
+                            ? currentIds.filter((entry) => entry !== layer.id)
+                            : [...currentIds, layer.id]
+                        );
+                      }}
+                    >
+                      <span className="material-symbols-outlined" aria-hidden="true">
+                        {isExpanded ? "expand_more" : "chevron_right"}
+                      </span>
+                    </button>
+                  ) : (
+                    <span className="layer-row__expander-placeholder" aria-hidden="true" />
+                  )}
+                  <span className={`layer-row__preview layer-row__preview--${layer.type}`}>
                     <span className="material-symbols-outlined" aria-hidden="true">
-                      {isExpanded ? "expand_more" : "chevron_right"}
+                      {layerPreviewIcon(layer)}
                     </span>
-                  </button>
-                ) : (
-                  <span className="layer-row__expander-placeholder" aria-hidden="true" />
-                )}
-                <span className={`layer-row__preview layer-row__preview--${layer.type}`}>
-                  <span className="material-symbols-outlined" aria-hidden="true">
-                    {layerPreviewIcon(layer)}
                   </span>
-                </span>
-                <span className="layer-row__content">
-                  <strong>{layer.name}</strong>
-                  <small>
-                    {layer.type}
-                    {isGroup ? ` • ${childLayers.length} items` : ""}
-                  </small>
-                </span>
+                  <span className="layer-row__content">
+                    <strong>{layer.name}</strong>
+                    <small>
+                      {layer.type}
+                      {isGroup ? ` • ${childLayers.length} items` : ""}
+                    </small>
+                  </span>
+                </div>
                 <div className="layer-row__actions">
                   <button
                     type="button"
                     className={`icon-button ${layer.visible ? "" : "icon-button--muted"}`}
                     aria-label={layer.visible ? "Hide layer" : "Show layer"}
                     title={layer.visible ? "Hide layer" : "Show layer"}
-                    onPointerDown={(event) => {
+                    onClick={(event) => {
                       event.preventDefault();
                       event.stopPropagation();
                       if (!isEditableProject) {
@@ -2467,7 +2919,7 @@ export const DesignerApp = () => {
                     className={`icon-button ${layer.locked ? "icon-button--danger" : ""}`}
                     aria-label={layer.locked ? "Unlock layer" : "Lock layer"}
                     title={layer.locked ? "Unlock layer" : "Lock layer"}
-                    onPointerDown={(event) => {
+                    onClick={(event) => {
                       event.preventDefault();
                       event.stopPropagation();
                       if (!isEditableProject) {
@@ -2501,14 +2953,10 @@ export const DesignerApp = () => {
                     className="icon-button"
                     aria-label={`More actions for ${layer.name}`}
                     title={`More actions for ${layer.name}`}
-                    onPointerDown={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                    }}
                     onClick={(event) => {
                       event.preventDefault();
                       event.stopPropagation();
-                      openLayerContextMenuFromElement(event.currentTarget, layer.id);
+                      scheduleLayerContextMenuOpen(event.currentTarget, layer.id);
                     }}
                   >
                     <span className="material-symbols-outlined" aria-hidden="true">
@@ -2598,13 +3046,15 @@ export const DesignerApp = () => {
       return (
         <DesignerAssetsPanel
           assets={filteredImageAssets}
+          recentAssets={recentImageAssets}
           searchQuery={assetSearchQuery}
           onSearchQueryChange={setAssetSearchQuery}
           onUpload={() => openFilePicker("insert")}
-          onOpenAssetMenu={(event, assetId) => {
-            event.preventDefault();
-            event.stopPropagation();
-            openAssetContextMenuFromElement(event.currentTarget, assetId);
+          onOpenAssetMenu={(x, y, assetId) => {
+            scheduleAssetContextMenuOpen(x, y, assetId);
+          }}
+          onOpenAssetContextMenu={(x, y, assetId) => {
+            scheduleAssetContextMenuOpen(x, y, assetId);
           }}
           onUseAsset={(assetId) => {
             const asset = availableImageAssets.find((entry) => entry.id === assetId);
@@ -2724,10 +3174,10 @@ export const DesignerApp = () => {
           actions={
             <button
               type="button"
-              className="workspace-tool-button workspace-tool-button--icon"
-              onClick={() => setOverlay("menu")}
-              aria-label="More actions"
-              title="More actions"
+              className="workspace-tool-button workspace-tool-button--icon workspace-tool-button--menu"
+              onClick={() => setOverlay((current) => (current === "menu" ? null : "menu"))}
+              aria-label="Open elements menu"
+              title="Open elements menu"
             >
               <span className="material-symbols-outlined" aria-hidden="true">
                 more_horiz
@@ -2758,7 +3208,7 @@ export const DesignerApp = () => {
               onAddImage={() => openFilePicker("insert")}
               onAddShape={addShapeLayer}
               onAddDivider={() => addShapeLayer("divider")}
-              onOpenMenu={() => setOverlay("menu")}
+              onOpenMenu={() => setOverlay((current) => (current === "menu" ? null : "menu"))}
             />
           ) : null}
 
@@ -2797,7 +3247,7 @@ export const DesignerApp = () => {
                   <span className={selectedLayerLayoutStatus.tone}>{selectedLayerLayoutStatus.text}</span>
                 </div>
               ) : null}
-              {isEditableProject && rightPanel === "edit" && (cropMode || multiSelectionActive) ? (
+              {isEditableProject && rightPanel === "edit" && (cropMode || multiSelectionActive || Boolean(selectedLayer)) ? (
                 <div className={`selection-toolbar ${cropMode ? "selection-toolbar--crop" : ""}`}>
                   <div className="selection-toolbar__intro">
                     <strong>{multiSelectionActive ? `${selectedLayerIds.length} items selected` : selectedLayer?.name}</strong>
@@ -2847,26 +3297,37 @@ export const DesignerApp = () => {
                     ) : null}
                     {!cropMode && !multiSelectionActive && selectedLayer ? (
                       <>
-                        <button type="button" className="button--ghost" onClick={duplicateSelectedLayer}>
+                        <button type="button" className="button--ghost" onClick={duplicateSelectedLayer} title="Duplicate the selected item">
                           Duplicate
                         </button>
+                        {selectedLayer.type === "text" && !selectedLayer.locked ? (
+                          <button
+                            type="button"
+                            className="button--ghost"
+                            onClick={() => stageRef.current?.editSelectedText()}
+                            title="Edit the selected text directly on the canvas"
+                          >
+                            Edit text
+                          </button>
+                        ) : null}
                         {selectedLayer.type === "image" ? (
-                          <button type="button" className="button--ghost" onClick={() => setCropMode(true)}>
+                          <button type="button" className="button--ghost" onClick={() => setCropMode(true)} title="Crop the selected image">
                             Crop image
                           </button>
                         ) : null}
                         {canUngroupSelection ? (
-                          <button type="button" className="button--ghost" onClick={ungroupSelectedLayer}>
+                          <button type="button" className="button--ghost" onClick={ungroupSelectedLayer} title="Ungroup the selected items">
                             Ungroup
                           </button>
                         ) : null}
                         <button
                           type="button"
                           className="button--ghost"
-                          onPointerDown={(event) => {
+                          title="Open more actions for the selected item"
+                          onClick={(event) => {
                             event.preventDefault();
                             event.stopPropagation();
-                            openLayerContextMenuFromElement(event.currentTarget, selectedLayer.id);
+                            scheduleLayerContextMenuOpen(event.currentTarget, selectedLayer.id);
                           }}
                         >
                           More actions
@@ -2875,19 +3336,31 @@ export const DesignerApp = () => {
                     ) : null}
                     {!cropMode && multiSelectionActive ? (
                       <>
-                        <button type="button" className="button--ghost" onClick={groupSelectedLayers} disabled={!canGroupSelection}>
+                        <button type="button" className="button--ghost" onClick={groupSelectedLayers} disabled={!canGroupSelection} title="Group the selected items">
                           Group
                         </button>
-                        <button type="button" className="button--ghost" onClick={() => distributeSelectedLayers("horizontal")} disabled={!canDistributeSelection}>
+                        <button
+                          type="button"
+                          className="button--ghost"
+                          onClick={() => distributeSelectedLayers("horizontal")}
+                          disabled={!canDistributeSelection}
+                          title="Distribute the selected items horizontally"
+                        >
                           Space H
                         </button>
-                        <button type="button" className="button--ghost" onClick={() => distributeSelectedLayers("vertical")} disabled={!canDistributeSelection}>
+                        <button
+                          type="button"
+                          className="button--ghost"
+                          onClick={() => distributeSelectedLayers("vertical")}
+                          disabled={!canDistributeSelection}
+                          title="Distribute the selected items vertically"
+                        >
                           Space V
                         </button>
                       </>
                     ) : null}
                     {!cropMode ? (
-                    <button type="button" className="button--ghost" onClick={deleteSelectedLayers}>
+                    <button type="button" className="button--ghost" onClick={deleteSelectedLayers} title="Delete the selected item or group">
                       Delete
                     </button>
                     ) : null}
@@ -2916,8 +3389,15 @@ export const DesignerApp = () => {
                     width: currentSurface.artboard.width * effectiveScale,
                     height: currentSurface.artboard.height * effectiveScale
                   }}
-                  onClick={() => {
-                    if (panMode) {
+                  onContextMenu={(event) => {
+                    if (!isEditableProject || event.target !== event.currentTarget) {
+                      return;
+                    }
+                    event.preventDefault();
+                    openCanvasContextMenuAt(event.clientX, event.clientY);
+                  }}
+                  onClick={(event) => {
+                    if (panMode || event.target !== event.currentTarget) {
                       return;
                     }
                     setSelectedLayerIds([]);
@@ -2955,26 +3435,20 @@ export const DesignerApp = () => {
                       <p>Use the left toolbar to add text, images, or shapes.</p>
                     </div>
                   ) : null}
-                  {currentSurface.layers.length > 0 ? (
+                  {currentSurface.layers.length > 0 && (!isEditableProject || rightPanel !== "edit") ? (
                     <DesignerStagePreview
                       surface={currentSurface}
                       scale={effectiveScale}
                       selectedLayerIds={selectedLayerIds}
-                      assetUrls={localAssetUrls}
+                      assetUrls={resolvedAssetUrls}
                       onSelectLayerIds={selectLayerIds}
                       onOpenLayerContextMenu={(event, layer) => openLayerContextMenu(event, layer.id)}
-                      editingTextLayerId={editingTextLayerId}
-                      editingTextValue={editingTextValue}
-                      onBeginTextEdit={beginInlineTextEdit}
-                      onEditTextValueChange={setEditingTextValue}
-                      onCommitTextEdit={commitInlineTextEdit}
-                      onCancelTextEdit={cancelInlineTextEdit}
                     />
                   ) : null}
                   <FabricCanvasStage
                     ref={stageRef}
                     surface={currentSurface}
-                    assetUrls={localAssetUrls}
+                    assetUrls={resolvedAssetUrls}
                     zoom={zoom}
                     maxWidth={stageViewportWidth}
                     maxHeight={stageViewportHeight}
@@ -2982,10 +3456,12 @@ export const DesignerApp = () => {
                     cropLayerId={cropMode ? selectedLayer?.id ?? null : null}
                     gridEnabled={gridEnabled}
                     guidesVisible={guidesVisible}
+                    panMode={panMode}
                     isEditable={isStageEditable}
                     selectedLayerIds={selectedLayerIds}
                     onSelectionChange={selectLayerIds}
                     onOpenLayerContextMenu={openLayerContextMenuAt}
+                    onOpenCanvasContextMenu={openCanvasContextMenuAt}
                     onSurfaceChange={(nextSurface, historyLabel) => {
                       captureHistory(historyLabel);
                       updateCurrentSurface(() => nextSurface);
@@ -3200,45 +3676,7 @@ export const DesignerApp = () => {
 
           {overlay === "navigator" ? <div className="workspace-overlay__content">{renderNavigatorContent()}</div> : null}
 
-          {overlay === "menu" ? (
-            <DesignerMoreElementsPanel
-              elements={[
-                {
-                  id: "qr",
-                  label: "QR Code",
-                  description: "Add a scannable block for links, menus, or product journeys.",
-                  icon: "qr_code_2",
-                  disabled: !isEditableProject,
-                  onSelect: () => {
-                    addQrLayer();
-                    setOverlay(null);
-                  }
-                },
-                {
-                  id: "barcode",
-                  label: "Bar Code",
-                  description: "Insert a barcode for labels, tickets, or retail packaging.",
-                  icon: "barcode",
-                  disabled: !isEditableProject,
-                  onSelect: () => {
-                    addBarcodeLayer();
-                    setOverlay(null);
-                  }
-                },
-                {
-                  id: "table",
-                  label: "Tabelle",
-                  description: "Place a structured table block for specs, menus, or pricing.",
-                  icon: "table_rows",
-                  disabled: !isEditableProject,
-                  onSelect: () => {
-                    addTableBlock();
-                    setOverlay(null);
-                  }
-                }
-              ]}
-            />
-          ) : null}
+          {overlay === "menu" ? <DesignerMoreElementsPanel elements={moreElements} /> : null}
       </DesignerOverlay>
     );
   };
@@ -3250,6 +3688,7 @@ export const DesignerApp = () => {
 
     return (
       <LayerContextMenu
+        menuRef={layerMenuRef}
         x={contextMenu.x}
         y={contextMenu.y}
         layerName={contextMenuLayer.name}
@@ -3261,39 +3700,51 @@ export const DesignerApp = () => {
           setContextMenu(null);
         }}
         onDuplicate={() => {
-          duplicateSelectedLayer();
+          duplicateLayerById(contextMenuLayer.id);
           setContextMenu(null);
         }}
         onToggleVisible={() => {
-          toggleSelectedLayerFlag("visible");
+          toggleLayerFlagById(contextMenuLayer.id, "visible");
           setContextMenu(null);
         }}
         onToggleLocked={() => {
-          toggleSelectedLayerFlag("locked");
+          toggleLayerFlagById(contextMenuLayer.id, "locked");
           setContextMenu(null);
         }}
         onBringForward={() => {
-          moveSelectedLayer("forward");
+          moveLayerById(contextMenuLayer.id, "forward");
           setContextMenu(null);
         }}
         onSendBackward={() => {
-          moveSelectedLayer("backward");
+          moveLayerById(contextMenuLayer.id, "backward");
           setContextMenu(null);
         }}
         onCenter={() => {
-          alignSelectedLayer("center");
+          alignLayerById(contextMenuLayer.id, "center");
           setContextMenu(null);
         }}
+        canGroupSelection={canGroupSelection && selectedLayerIds.includes(contextMenuLayer.id)}
+        onGroupSelection={
+          canGroupSelection && selectedLayerIds.includes(contextMenuLayer.id)
+            ? () => {
+                groupSelectedLayers();
+                setContextMenu(null);
+              }
+            : undefined
+        }
         onUngroup={
           contextMenuLayer.type === "group"
             ? () => {
-                ungroupSelectedLayer();
+                setSelectedLayerIds([contextMenuLayer.id]);
+                setSelectedLayerId(contextMenuLayer.id);
+                stageRef.current?.selectLayerIds([contextMenuLayer.id]);
+                ungroupLayerById(contextMenuLayer.id);
                 setContextMenu(null);
               }
             : undefined
         }
         onDelete={() => {
-          deleteSelectedLayer();
+          deleteLayerById(contextMenuLayer.id);
           setContextMenu(null);
         }}
       />
@@ -3307,6 +3758,7 @@ export const DesignerApp = () => {
 
     return (
       <DesignerAssetContextMenu
+        menuRef={assetMenuRef}
         x={assetContextMenu.x}
         y={assetContextMenu.y}
         assetName={contextMenuAsset.filename}
@@ -3315,10 +3767,111 @@ export const DesignerApp = () => {
           placeExistingAsset(contextMenuAsset);
           setAssetContextMenu(null);
         }}
+        onReplace={
+          selectedLayer?.type === "image"
+            ? () => {
+                replaceSelectedImageWithAsset(contextMenuAsset);
+                setAssetContextMenu(null);
+              }
+            : undefined
+        }
         onDelete={() => {
           void deleteAssetFromLibrary(contextMenuAsset.id);
           setAssetContextMenu(null);
         }}
+      />
+    );
+  };
+
+  const renderCanvasContextMenu = () => {
+    if (!canvasContextMenu || !isEditableProject) {
+      return null;
+    }
+
+    return (
+      <DesignerCanvasContextMenu
+        x={canvasContextMenu.x}
+        y={canvasContextMenu.y}
+        actions={
+          multiSelectionActive
+            ? [
+                {
+                  id: "group",
+                  label: "Group selected items",
+                  icon: "layers",
+                  onSelect: () => {
+                    groupSelectedLayers();
+                    setCanvasContextMenu(null);
+                  }
+                },
+                {
+                  id: "space-h",
+                  label: "Distribute horizontally",
+                  icon: "format_align_center",
+                  onSelect: () => {
+                    distributeSelectedLayers("horizontal");
+                    setCanvasContextMenu(null);
+                  }
+                },
+                {
+                  id: "space-v",
+                  label: "Distribute vertically",
+                  icon: "format_align_middle",
+                  onSelect: () => {
+                    distributeSelectedLayers("vertical");
+                    setCanvasContextMenu(null);
+                  }
+                },
+                {
+                  id: "delete",
+                  label: "Delete selection",
+                  icon: "delete",
+                  onSelect: () => {
+                    deleteSelectedLayers();
+                    setCanvasContextMenu(null);
+                  }
+                }
+              ]
+            : [
+                {
+                  id: "text",
+                  label: "Add text",
+                  icon: "title",
+                  onSelect: () => {
+                    addTextLayer();
+                    setCanvasContextMenu(null);
+                  }
+                },
+                {
+                  id: "image",
+                  label: "Upload image",
+                  icon: "image",
+                  onSelect: () => {
+                    setFilePickerMode("insert");
+                    fileInputRef.current?.click();
+                    setCanvasContextMenu(null);
+                  }
+                },
+                {
+                  id: "shape",
+                  label: "Add shape",
+                  icon: "pentagon",
+                  onSelect: () => {
+                    addShapeLayer();
+                    setCanvasContextMenu(null);
+                  }
+                },
+                {
+                  id: "line",
+                  label: "Add line",
+                  icon: "horizontal_rule",
+                  onSelect: () => {
+                    addShapeLayer("divider");
+                    setCanvasContextMenu(null);
+                  }
+                }
+              ]
+        }
       />
     );
   };
@@ -3337,6 +3890,7 @@ export const DesignerApp = () => {
       {project ? renderOverlay() : null}
       {project ? renderContextMenu() : null}
       {project ? renderAssetContextMenu() : null}
+      {project ? renderCanvasContextMenu() : null}
     </>
   );
 };

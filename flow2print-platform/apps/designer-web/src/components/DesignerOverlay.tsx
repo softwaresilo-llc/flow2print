@@ -13,8 +13,8 @@ export const DesignerOverlay = ({ title, description, onClose, children }: Desig
     <div className="workspace-overlay__panel">
       <div className="section-heading">
         <div>
-          <h3>{title}</h3>
-          <p>{description}</p>
+          {title ? <h3>{title}</h3> : null}
+          {description ? <p>{description}</p> : null}
         </div>
         <button type="button" className="button--ghost" onClick={onClose}>
           Close

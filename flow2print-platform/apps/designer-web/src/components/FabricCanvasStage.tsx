@@ -1,14 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef } from "react";
-import {
-  ActiveSelection,
-  Canvas,
-  Circle,
-  FabricImage,
-  Group,
-  Rect,
-  Textbox,
-  type FabricObject
-} from "fabric";
+import { ActiveSelection, Canvas, Circle, FabricImage, Group, Rect, Textbox, type FabricObject } from "fabric";
 
 import type { Flow2PrintDocument } from "@flow2print/design-document";
 
@@ -26,15 +17,19 @@ interface FabricCanvasStageProps {
   cropLayerId: string | null;
   gridEnabled: boolean;
   guidesVisible: boolean;
+  panMode: boolean;
   isEditable: boolean;
   onSelectionChange: (ids: string[]) => void;
   onOpenLayerContextMenu: (x: number, y: number, layerId: string) => void;
+  onOpenCanvasContextMenu?: (x: number, y: number) => void;
   onSurfaceChange: (surface: DesignerSurface, historyLabel: string) => void;
 }
 
 export interface FabricCanvasStageHandle {
   bringForward: () => void;
   sendBackward: () => void;
+  editSelectedText: () => void;
+  selectLayerIds: (layerIds: string[]) => void;
 }
 
 type FabricLayerObject = FabricObject & {
@@ -66,6 +61,15 @@ const clampImageOffset = (offset: number, frameSize: number, renderedSize: numbe
   }
   return Math.min(0, Math.max(frameSize - renderedSize, offset));
 };
+
+const loadImageElement = (url: string) =>
+  new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new window.Image();
+    image.decoding = "async";
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error(`Unable to load image ${url}`));
+    image.src = url;
+  });
 
 const createMask = (layer: DesignerLayer, width: number, height: number) => {
   const maskShape = String(layer.metadata.maskShape ?? "rect");
@@ -101,6 +105,60 @@ const createMask = (layer: DesignerLayer, width: number, height: number) => {
   });
 };
 
+const stampCompositeChildren = (object: FabricObject, ownerData: NonNullable<FabricLayerObject["data"]>) => {
+  if (!(object instanceof Group)) {
+    return;
+  }
+  object.subTargetCheck = false;
+  object.getObjects().forEach((child) => {
+    const childObject = child as FabricLayerObject;
+    childObject.data = {
+      ...ownerData
+    };
+    stampCompositeChildren(child, ownerData);
+  });
+};
+
+const resolveLayerTarget = (target: FabricObject | null | undefined): FabricLayerObject | null => {
+  let current = (target ?? null) as FabricLayerObject | null;
+  while (current) {
+    if (current.data?.layerId) {
+      return current;
+    }
+    current = (current.group ?? null) as FabricLayerObject | null;
+  }
+  return null;
+};
+
+const extractTargetFromFindTarget = (result: unknown): FabricObject | null => {
+  if (!result || typeof result !== "object") {
+    return null;
+  }
+  if ("target" in result) {
+    return ((result as { target?: FabricObject | null }).target ?? null) as FabricObject | null;
+  }
+  return result as FabricObject;
+};
+
+const resolveEditableTextboxTarget = (
+  target: FabricObject | null | undefined,
+  activeObject: FabricObject | null | undefined
+): (Textbox & FabricLayerObject) | null => {
+  const candidates: Array<FabricObject | null | undefined> = [target, activeObject];
+  for (const candidate of candidates) {
+    if (candidate instanceof Textbox) {
+      return candidate as Textbox & FabricLayerObject;
+    }
+    if (candidate instanceof Group) {
+      const textboxChild = candidate.getObjects().find((entry) => entry instanceof Textbox);
+      if (textboxChild instanceof Textbox) {
+        return textboxChild as Textbox & FabricLayerObject;
+      }
+    }
+  }
+  return null;
+};
+
 const createTextObject = (layer: DesignerLayer, scale: number) =>
   new Textbox(String(layer.metadata.text ?? layer.name), {
     left: layer.x * scale,
@@ -110,8 +168,8 @@ const createTextObject = (layer: DesignerLayer, scale: number) =>
     angle: layer.rotation,
     opacity: layer.opacity,
     visible: layer.visible,
-    selectable: !layer.locked,
-    evented: !layer.locked,
+    selectable: true,
+    evented: true,
     hasControls: !layer.locked,
     lockScalingFlip: true,
     originX: "left",
@@ -128,18 +186,18 @@ const createShapeObject = (layer: DesignerLayer, scale: number) =>
     left: layer.x * scale,
     top: layer.y * scale,
     width: layer.width * scale,
-    height: Math.max(String(layer.metadata.variant ?? "") === "divider" ? 3 : 1, layer.height * scale),
+    height: Math.max(String(layer.metadata.variant ?? "") === "divider" ? 2 : 1, layer.height * scale),
     angle: layer.rotation,
     opacity: layer.opacity,
     visible: layer.visible,
-    selectable: !layer.locked,
-    evented: !layer.locked,
+    selectable: true,
+    evented: true,
     hasControls: !layer.locked,
     lockScalingFlip: true,
     originX: "left",
     originY: "top",
-    rx: String(layer.metadata.variant ?? "") === "divider" ? 999 : 10,
-    ry: String(layer.metadata.variant ?? "") === "divider" ? 999 : 10,
+    rx: String(layer.metadata.variant ?? "") === "divider" ? 0 : 10,
+    ry: String(layer.metadata.variant ?? "") === "divider" ? 0 : 10,
     fill: String(layer.metadata.fill ?? "#dbe8ff"),
     stroke: String(layer.metadata.variant ?? "") === "divider" ? String(layer.metadata.fill ?? "#9fb0c8") : "#9bb0d8",
     strokeWidth: String(layer.metadata.variant ?? "") === "divider" ? 0 : 1
@@ -177,13 +235,56 @@ const createQrOrBarcodeObject = (layer: DesignerLayer, scale: number) => {
     angle: layer.rotation,
     opacity: layer.opacity,
     visible: layer.visible,
-    selectable: !layer.locked,
-    evented: !layer.locked,
+    selectable: true,
+    evented: true,
     hasControls: !layer.locked,
     lockScalingFlip: true,
     originX: "left",
-    originY: "top"
+    originY: "top",
+    subTargetCheck: false
   });
+};
+
+const createImageFallbackObject = (layer: DesignerLayer, scale: number, reason?: string) => {
+  const renderWidth = layer.width * scale;
+  const renderHeight = layer.height * scale;
+  const message = reason ? `${layer.name}\n${reason}` : layer.name;
+  return new Group(
+    [
+      new Rect({
+        left: 0,
+        top: 0,
+        width: renderWidth,
+        height: renderHeight,
+        rx: 10,
+        ry: 10,
+        fill: "#eef4fb",
+        stroke: "#aac2e8",
+        strokeWidth: 1
+      }),
+      new Textbox(message, {
+        left: 10,
+        top: 10,
+        width: Math.max(24, renderWidth - 20),
+        fontSize: Math.max(10, 12 * scale * 0.45),
+        fill: "#40608f",
+        editable: false,
+        lineHeight: 1.2
+      })
+    ],
+    {
+      left: layer.x * scale,
+      top: layer.y * scale,
+      angle: layer.rotation,
+      opacity: layer.opacity,
+      visible: layer.visible,
+      selectable: true,
+      evented: true,
+      hasControls: !layer.locked,
+      originX: "left",
+      originY: "top"
+    }
+  );
 };
 
 const createImageObject = async (layer: DesignerLayer, scale: number, assetUrls: Record<string, string>) => {
@@ -194,42 +295,22 @@ const createImageObject = async (layer: DesignerLayer, scale: number, assetUrls:
   const renderWidth = layer.width * scale;
   const renderHeight = layer.height * scale;
   if (!url) {
-    return new Group(
-      [
-        new Rect({
-          left: 0,
-          top: 0,
-          width: renderWidth,
-          height: renderHeight,
-          fill: "#eef4fb",
-          stroke: "#aac2e8",
-          strokeWidth: 1
-        }),
-        new Textbox(layer.name, {
-          left: 8,
-          top: 8,
-          width: Math.max(24, renderWidth - 16),
-          fontSize: Math.max(10, 12 * scale * 0.45),
-          fill: "#40608f",
-          editable: false
-        })
-      ],
-      {
-        left,
-        top,
-        angle: layer.rotation,
-        opacity: layer.opacity,
-        visible: layer.visible,
-        selectable: !layer.locked,
-        evented: !layer.locked,
-        hasControls: !layer.locked,
-        originX: "left",
-        originY: "top"
-      }
-    );
+    return createImageFallbackObject(layer, scale, "Missing image");
   }
 
-  const image = await FabricImage.fromURL(url);
+  let image: FabricImage;
+  try {
+    const imageElement = await loadImageElement(url);
+    image = new FabricImage(imageElement);
+  } catch (error) {
+    console.warn("Flow2Print image load failed", {
+      layerId: layer.id,
+      assetId,
+      url,
+      error
+    });
+    return createImageFallbackObject(layer, scale, "Preview unavailable");
+  }
   const sourceWidth = image.width ?? renderWidth;
   const sourceHeight = image.height ?? renderHeight;
   const fitMode = String(layer.metadata.fitMode ?? "cover");
@@ -265,12 +346,13 @@ const createImageObject = async (layer: DesignerLayer, scale: number, assetUrls:
     angle: layer.rotation,
     opacity: layer.opacity,
     visible: layer.visible,
-    selectable: !layer.locked,
-    evented: !layer.locked,
+    selectable: true,
+    evented: true,
     hasControls: !layer.locked,
     originX: "left",
     originY: "top",
-    clipPath: createMask(layer, renderWidth, renderHeight)
+    clipPath: createMask(layer, renderWidth, renderHeight),
+    subTargetCheck: false
   });
 };
 
@@ -295,12 +377,13 @@ const createGroupObject = async (layer: DesignerLayer, scale: number, assetUrls:
     angle: layer.rotation,
     opacity: layer.opacity,
     visible: layer.visible,
-    selectable: !layer.locked,
-    evented: !layer.locked,
+    selectable: true,
+    evented: true,
     hasControls: !layer.locked,
     lockScalingFlip: true,
     originX: "left",
-    originY: "top"
+    originY: "top",
+    subTargetCheck: false
   });
 };
 
@@ -337,6 +420,7 @@ const createFabricObject = async (layer: DesignerLayer, scale: number, assetUrls
     locked: layer.locked,
     visible: layer.visible
   };
+  stampCompositeChildren(fabricObject, fabricObject.data);
   return fabricObject;
 };
 
@@ -452,6 +536,15 @@ const collectSelectionIds = (activeObject: FabricObject | undefined) => {
   return layerId ? [layerId] : [];
 };
 
+const beginTextboxEditing = (canvas: Canvas, target: Textbox & FabricLayerObject) => {
+  canvas.setActiveObject(target);
+  target.enterEditing();
+  window.requestAnimationFrame(() => {
+    (target.hiddenTextarea as HTMLTextAreaElement | undefined)?.focus();
+  });
+  canvas.requestRenderAll();
+};
+
 export const FabricCanvasStage = forwardRef<FabricCanvasStageHandle, FabricCanvasStageProps>(
   function FabricCanvasStage(
     {
@@ -465,9 +558,11 @@ export const FabricCanvasStage = forwardRef<FabricCanvasStageHandle, FabricCanva
       cropLayerId,
       gridEnabled,
       guidesVisible,
+      panMode,
       isEditable,
       onSelectionChange,
       onOpenLayerContextMenu,
+      onOpenCanvasContextMenu,
       onSurfaceChange
     },
     ref
@@ -476,6 +571,17 @@ export const FabricCanvasStage = forwardRef<FabricCanvasStageHandle, FabricCanva
     const canvasRef = useRef<Canvas | null>(null);
     const objectMapRef = useRef<Map<string, FabricLayerObject>>(new Map());
     const syncingRef = useRef(false);
+    const surfaceRef = useRef(surface);
+    const scaleRef = useRef(1);
+    const isEditableRef = useRef(isEditable);
+    const cropModeRef = useRef(cropMode);
+    const cropLayerIdRef = useRef(cropLayerId);
+    const panModeRef = useRef(panMode);
+    const selectedLayerIdsRef = useRef(selectedLayerIds);
+    const onSelectionChangeRef = useRef(onSelectionChange);
+    const onOpenLayerContextMenuRef = useRef(onOpenLayerContextMenu);
+    const onOpenCanvasContextMenuRef = useRef(onOpenCanvasContextMenu);
+    const onSurfaceChangeRef = useRef(onSurfaceChange);
     const cropDragRef = useRef<null | {
       startX: number;
       startY: number;
@@ -486,6 +592,34 @@ export const FabricCanvasStage = forwardRef<FabricCanvasStageHandle, FabricCanva
       () => Math.min(maxWidth / surface.artboard.width, maxHeight / surface.artboard.height, 5.5) * zoom,
       [maxHeight, maxWidth, surface.artboard.height, surface.artboard.width, zoom]
     );
+
+    useEffect(() => {
+      surfaceRef.current = surface;
+      scaleRef.current = scale;
+      isEditableRef.current = isEditable;
+      cropModeRef.current = cropMode;
+      cropLayerIdRef.current = cropLayerId;
+      panModeRef.current = panMode;
+      selectedLayerIdsRef.current = selectedLayerIds;
+      onSelectionChangeRef.current = onSelectionChange;
+      onOpenLayerContextMenuRef.current = onOpenLayerContextMenu;
+      onOpenCanvasContextMenuRef.current = onOpenCanvasContextMenu;
+      onSurfaceChangeRef.current = onSurfaceChange;
+    }, [cropLayerId, cropMode, isEditable, onOpenCanvasContextMenu, onOpenLayerContextMenu, onSelectionChange, onSurfaceChange, panMode, scale, selectedLayerIds, surface]);
+
+    const applySelectionToCanvas = (canvas: Canvas, layerIds: string[]) => {
+      const selectedObjects = canvas
+        .getObjects()
+        .filter((object) => layerIds.includes((object as FabricLayerObject).data?.layerId ?? ""));
+      if (selectedObjects.length === 1) {
+        canvas.setActiveObject(selectedObjects[0]);
+      } else if (selectedObjects.length > 1) {
+        canvas.setActiveObject(new ActiveSelection(selectedObjects, { canvas }));
+      } else {
+        canvas.discardActiveObject();
+      }
+      canvas.requestRenderAll();
+    };
 
     useImperativeHandle(
       ref,
@@ -498,7 +632,10 @@ export const FabricCanvasStage = forwardRef<FabricCanvasStageHandle, FabricCanva
           }
           canvas.bringObjectForward(activeObject);
           canvas.requestRenderAll();
-          onSurfaceChange(surfaceFromCanvas(canvas, surface, scale), "Bring forward");
+          onSurfaceChangeRef.current(
+            surfaceFromCanvas(canvas, surfaceRef.current, scaleRef.current),
+            "Bring forward"
+          );
         },
         sendBackward: () => {
           const canvas = canvasRef.current;
@@ -508,10 +645,32 @@ export const FabricCanvasStage = forwardRef<FabricCanvasStageHandle, FabricCanva
           }
           canvas.sendObjectBackwards(activeObject);
           canvas.requestRenderAll();
-          onSurfaceChange(surfaceFromCanvas(canvas, surface, scale), "Send backward");
+          onSurfaceChangeRef.current(
+            surfaceFromCanvas(canvas, surfaceRef.current, scaleRef.current),
+            "Send backward"
+          );
+        },
+        editSelectedText: () => {
+          const canvas = canvasRef.current;
+          const activeObject = canvas?.getActiveObject();
+          const target = resolveEditableTextboxTarget(activeObject, activeObject);
+          if (!target) {
+            return;
+          }
+          if (target.data?.locked) {
+            return;
+          }
+          beginTextboxEditing(canvas!, target);
+        },
+        selectLayerIds: (layerIds: string[]) => {
+          const canvas = canvasRef.current;
+          if (!canvas) {
+            return;
+          }
+          applySelectionToCanvas(canvas, layerIds);
         }
       }),
-      [onSurfaceChange, scale, surface]
+      []
     );
 
     useEffect(() => {
@@ -519,8 +678,8 @@ export const FabricCanvasStage = forwardRef<FabricCanvasStageHandle, FabricCanva
         return;
       }
       const canvas = new Canvas(canvasElementRef.current, {
-        width: surface.artboard.width * scale,
-        height: surface.artboard.height * scale,
+        width: surfaceRef.current.artboard.width * scaleRef.current,
+        height: surfaceRef.current.artboard.height * scaleRef.current,
         preserveObjectStacking: true,
         selection: isEditable
       });
@@ -534,7 +693,7 @@ export const FabricCanvasStage = forwardRef<FabricCanvasStageHandle, FabricCanva
         if (syncingRef.current) {
           return;
         }
-        onSelectionChange(collectSelectionIds(canvas.getActiveObject() ?? undefined));
+        onSelectionChangeRef.current(collectSelectionIds(canvas.getActiveObject() ?? undefined));
       };
 
       canvas.on("selection:created", syncSelection);
@@ -543,43 +702,57 @@ export const FabricCanvasStage = forwardRef<FabricCanvasStageHandle, FabricCanva
       const preventContextMenu = (event: Event) => {
         event.preventDefault();
       };
+      const handleNativeContextMenu = (event: Event) => {
+        const pointerEvent = event as MouseEvent;
+        pointerEvent.preventDefault();
+        if (!isEditableRef.current) {
+          return;
+        }
+        const target = resolveLayerTarget(extractTargetFromFindTarget(canvas.findTarget(pointerEvent)));
+        const layerId = target?.data?.layerId;
+        const activeIds = collectSelectionIds(canvas.getActiveObject() ?? undefined);
+        if (layerId) {
+          if (!activeIds.includes(layerId)) {
+            canvas.setActiveObject(target as FabricObject);
+            canvas.requestRenderAll();
+            onSelectionChangeRef.current([layerId]);
+          } else {
+            onSelectionChangeRef.current(activeIds);
+          }
+          onOpenLayerContextMenuRef.current(pointerEvent.clientX, pointerEvent.clientY, layerId);
+          return;
+        }
+        onSelectionChangeRef.current(activeIds);
+        onOpenCanvasContextMenuRef.current?.(pointerEvent.clientX, pointerEvent.clientY);
+      };
       canvas.upperCanvasEl?.addEventListener("contextmenu", preventContextMenu);
       canvas.lowerCanvasEl?.addEventListener("contextmenu", preventContextMenu);
+      canvas.upperCanvasEl?.addEventListener("contextmenu", handleNativeContextMenu);
       canvas.on("object:modified", (event) => {
         if (syncingRef.current || !event.target) {
           return;
         }
         const targetType = event.transform?.action ?? "modified";
-        onSurfaceChange(surfaceFromCanvas(canvas, surface, scale), HISTORY_LABELS[targetType] ?? "Edit selection");
-      });
-      canvas.on("text:changed", () => {
-        if (syncingRef.current) {
-          return;
-        }
-        onSurfaceChange(surfaceFromCanvas(canvas, surface, scale), "Edit text");
+        onSurfaceChangeRef.current(
+          surfaceFromCanvas(canvas, surfaceRef.current, scaleRef.current),
+          HISTORY_LABELS[targetType] ?? "Edit selection"
+        );
       });
       canvas.on("text:editing:exited", () => {
         if (syncingRef.current) {
           return;
         }
-        onSurfaceChange(surfaceFromCanvas(canvas, surface, scale), "Edit text");
+        onSurfaceChangeRef.current(surfaceFromCanvas(canvas, surfaceRef.current, scaleRef.current), "Edit text");
       });
       canvas.on("mouse:down", (event) => {
-        const pointerEvent = event.e as MouseEvent;
-        if ("button" in pointerEvent && pointerEvent.button === 2) {
-          const target = event.target as FabricLayerObject | undefined;
-          const layerId = target?.data?.layerId;
-          if (layerId) {
-            pointerEvent.preventDefault();
-            onOpenLayerContextMenu(pointerEvent.clientX, pointerEvent.clientY, layerId);
-            return;
-          }
+        if (panModeRef.current) {
+          return;
         }
-        if (!cropMode || !cropLayerId) {
+        if (!cropModeRef.current || !cropLayerIdRef.current) {
           return;
         }
         const target = event.target as FabricLayerObject | undefined;
-        if (!target || target.data?.layerId !== cropLayerId || target.data?.layerType !== "image") {
+        if (!target || target.data?.layerId !== cropLayerIdRef.current || target.data?.layerType !== "image") {
           return;
         }
         const imageGroup = target as Group;
@@ -596,26 +769,23 @@ export const FabricCanvasStage = forwardRef<FabricCanvasStageHandle, FabricCanva
         };
       });
       canvas.on("mouse:dblclick", (event) => {
-        if (!isEditable || cropMode) {
+        if (!isEditableRef.current || cropModeRef.current || panModeRef.current) {
           return;
         }
-        const target = event.target;
-        if (!(target instanceof Textbox)) {
+        const target = resolveEditableTextboxTarget(event.target, canvas.getActiveObject());
+        if (!target) {
           return;
         }
-        if ((target as FabricLayerObject).data?.locked) {
+        if (target.data?.locked) {
           return;
         }
-        target.enterEditing();
-        target.selectAll();
-        (target.hiddenTextarea as HTMLTextAreaElement | undefined)?.focus();
-        canvas.requestRenderAll();
+        beginTextboxEditing(canvas, target);
       });
       canvas.on("mouse:move", (event) => {
-        if (!cropDragRef.current || !cropMode || !cropLayerId) {
+        if (!cropDragRef.current || !cropModeRef.current || !cropLayerIdRef.current) {
           return;
         }
-        const imageGroup = objectMapRef.current.get(cropLayerId);
+        const imageGroup = objectMapRef.current.get(cropLayerIdRef.current);
         if (!(imageGroup instanceof Group)) {
           return;
         }
@@ -645,19 +815,20 @@ export const FabricCanvasStage = forwardRef<FabricCanvasStageHandle, FabricCanva
           return;
         }
         cropDragRef.current = null;
-        onSurfaceChange(surfaceFromCanvas(canvas, surface, scale), "Crop image");
+        onSurfaceChangeRef.current(surfaceFromCanvas(canvas, surfaceRef.current, scaleRef.current), "Crop image");
       });
 
       return () => {
         canvas.upperCanvasEl?.removeEventListener("contextmenu", preventContextMenu);
         canvas.lowerCanvasEl?.removeEventListener("contextmenu", preventContextMenu);
+        canvas.upperCanvasEl?.removeEventListener("contextmenu", handleNativeContextMenu);
         if (import.meta.env.DEV && typeof window !== "undefined") {
           delete (window as Window & { __FLOW2PRINT_STAGE__?: Canvas }).__FLOW2PRINT_STAGE__;
         }
         canvas.dispose();
         canvasRef.current = null;
       };
-    }, [cropLayerId, cropMode, isEditable, onOpenLayerContextMenu, onSelectionChange, onSurfaceChange, scale, surface]);
+    }, []);
 
     useEffect(() => {
       const canvas = canvasRef.current;
@@ -679,8 +850,11 @@ export const FabricCanvasStage = forwardRef<FabricCanvasStageHandle, FabricCanva
             width: surface.artboard.width * scale,
             height: surface.artboard.height * scale
           });
-          canvas.selection = isEditable;
+          canvas.selection = isEditable && !panMode;
           canvas.backgroundColor = "#ffffff";
+          canvas.defaultCursor = panMode ? "grab" : "default";
+          canvas.hoverCursor = panMode ? "grab" : "move";
+          canvas.moveCursor = panMode ? "grabbing" : "move";
           canvas.calcOffset();
 
           if (gridEnabled) {
@@ -741,28 +915,45 @@ export const FabricCanvasStage = forwardRef<FabricCanvasStageHandle, FabricCanva
             );
           }
 
-          const layerObjects = await Promise.all(surface.layers.map((layer) => createFabricObject(layer, scale, assetUrls)));
-          if (cancelled) {
-            return;
-          }
           const nextMap = new Map<string, FabricLayerObject>();
-          for (const object of layerObjects) {
+          for (const layer of surface.layers) {
+            if (cancelled) {
+              return;
+            }
+            let object: FabricObject;
+            try {
+              object = await createFabricObject(layer, scale, assetUrls);
+            } catch (error) {
+              console.warn("Flow2Print layer render failed", {
+                layerId: layer.id,
+                error
+              });
+              continue;
+            }
             const layerObject = object as FabricLayerObject;
             const isCropTarget =
               cropMode && cropLayerId === layerObject.data?.layerId && layerObject.data?.layerType === "image";
-            layerObject.lockMovementX = !isEditable || Boolean(layerObject.data?.locked) || isCropTarget;
-            layerObject.lockMovementY = !isEditable || Boolean(layerObject.data?.locked) || isCropTarget;
-            layerObject.lockRotation = !isEditable || Boolean(layerObject.data?.locked) || isCropTarget;
-            layerObject.hasControls = isEditable && !Boolean(layerObject.data?.locked) && !isCropTarget;
+            layerObject.selectable = isEditable && !panMode;
+            layerObject.evented = isEditable && !panMode;
+            layerObject.lockMovementX = !isEditable || panMode || Boolean(layerObject.data?.locked) || isCropTarget;
+            layerObject.lockMovementY = !isEditable || panMode || Boolean(layerObject.data?.locked) || isCropTarget;
+            layerObject.lockRotation = !isEditable || panMode || Boolean(layerObject.data?.locked) || isCropTarget;
+            layerObject.hasControls = isEditable && !panMode && !Boolean(layerObject.data?.locked) && !isCropTarget;
+            layerObject.hoverCursor = isEditable && !panMode && !Boolean(layerObject.data?.locked) ? "move" : "default";
+            layerObject.moveCursor = panMode ? "grabbing" : "move";
             if (layerObject instanceof Textbox) {
               const layerTextbox = layerObject as Textbox & FabricLayerObject;
-              layerTextbox.editable = isEditable && !Boolean(layerTextbox.data?.locked);
-              layerTextbox.hoverCursor = isEditable && !Boolean(layerTextbox.data?.locked) ? "text" : "default";
+              layerTextbox.editable = isEditable && !panMode && !Boolean(layerTextbox.data?.locked);
+              layerTextbox.hoverCursor = isEditable && !panMode && !Boolean(layerTextbox.data?.locked) ? "text" : "default";
+              layerTextbox.moveCursor = panMode ? "grabbing" : "move";
               layerObject.on("editing:exited", () => {
                 if (syncingRef.current) {
                   return;
                 }
-                onSurfaceChange(surfaceFromCanvas(canvas, surface, scale), "Edit text");
+                onSurfaceChangeRef.current(
+                  surfaceFromCanvas(canvas, surfaceRef.current, scaleRef.current),
+                  "Edit text"
+                );
               });
             }
             if (isCropTarget) {
@@ -779,16 +970,8 @@ export const FabricCanvasStage = forwardRef<FabricCanvasStageHandle, FabricCanva
             canvasElementRef.current.dataset.objectCount = String(nextMap.size);
           }
 
-          const selectedObjects = canvas
-            .getObjects()
-            .filter((object) => selectedLayerIds.includes((object as FabricLayerObject).data?.layerId ?? ""));
-          if (selectedObjects.length === 1) {
-            canvas.setActiveObject(selectedObjects[0]);
-          } else if (selectedObjects.length > 1) {
-            canvas.setActiveObject(new ActiveSelection(selectedObjects, { canvas }));
-          } else {
-            canvas.discardActiveObject();
-          }
+          applySelectionToCanvas(canvas, selectedLayerIdsRef.current);
+
           canvas.renderAll();
           if (canvasElementRef.current) {
             canvasElementRef.current.dataset.renderStatus = "ready";
@@ -809,7 +992,15 @@ export const FabricCanvasStage = forwardRef<FabricCanvasStageHandle, FabricCanva
       return () => {
         cancelled = true;
       };
-    }, [assetUrls, cropLayerId, cropMode, gridEnabled, guidesVisible, isEditable, scale, selectedLayerIds, surface]);
+    }, [assetUrls, cropLayerId, cropMode, gridEnabled, guidesVisible, isEditable, scale, surface]);
+
+    useEffect(() => {
+      const canvas = canvasRef.current;
+      if (!canvas || syncingRef.current) {
+        return;
+      }
+      applySelectionToCanvas(canvas, selectedLayerIds);
+    }, [selectedLayerIds]);
 
     return <canvas ref={canvasElementRef} className={`fabric-stage ${isEditable ? "fabric-stage--interactive" : ""}`} />;
   }

@@ -59,6 +59,35 @@ const artifactFilePathForHref = (href: string) => resolve(dataDir, href.replace(
 const objectStorageRoot = resolve(process.cwd(), process.env.FLOW2PRINT_STORAGE_DIR ?? ".flow2print-object-storage");
 const objectPathForKey = (objectKey: string) => resolve(objectStorageRoot, objectKey);
 const hashApiTokenSecret = (token: string) => createHash("sha256").update(token).digest("hex");
+const writeObjectBuffer = async (objectKey: string, buffer: Buffer) => {
+  const filePath = objectPathForKey(objectKey);
+  await mkdir(dirname(filePath), { recursive: true });
+  await writeFile(filePath, buffer);
+};
+
+const buildLegacyAssetSvg = (asset: { filename: string; widthPx: number | null; heightPx: number | null }) => {
+  const width = Math.max(800, asset.widthPx ?? 1200);
+  const height = Math.max(500, asset.heightPx ?? 800);
+  const label = asset.filename.replace(/[<&>"]/g, "");
+  return Buffer.from(
+    `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f6f9fe"/>
+      <stop offset="100%" stop-color="#dfe8f7"/>
+    </linearGradient>
+  </defs>
+  <rect width="${width}" height="${height}" rx="28" fill="url(#bg)"/>
+  <rect x="48" y="48" width="${width - 96}" height="${height - 96}" rx="22" fill="#ffffff" stroke="#bfd0e7" stroke-width="6"/>
+  <text x="92" y="${Math.round(height * 0.34)}" fill="#2f4f83" font-size="${Math.round(width * 0.06)}" font-family="Georgia, 'Times New Roman', serif">${label}</text>
+  <text x="92" y="${Math.round(height * 0.48)}" fill="#456790" font-size="${Math.round(width * 0.038)}" font-family="Arial, sans-serif">Legacy asset record without uploaded binary</text>
+  <text x="92" y="${Math.round(height * 0.58)}" fill="#70839d" font-size="${Math.round(width * 0.026)}" font-family="Arial, sans-serif">Replace this asset with a real upload from the library.</text>
+  <rect x="${Math.round(width * 0.72)}" y="70" width="${Math.round(width * 0.16)}" height="${Math.round(height * 0.68)}" rx="18" fill="#e7eef9" stroke="#c7d6ea" stroke-width="4"/>
+</svg>`,
+    "utf8"
+  );
+};
 
 const renderedArtifactBuffer = (artifactType: OutputArtifact["artifactType"], outputs: RenderOutput) => {
   if (artifactType === "preview_png") {
@@ -497,6 +526,44 @@ const mapLaunchSession = (record: {
 export class DatabaseRuntimeStore {
   private prisma = getPrismaClient();
   private seeded = false;
+  private repairedLegacyAssets = false;
+
+  private async repairLegacyAssets() {
+    if (this.repairedLegacyAssets) {
+      return;
+    }
+
+    const legacyAssets = await this.prisma.asset.findMany({
+      where: {
+        kind: "image",
+        status: "ready",
+        originalObjectKey: null
+      }
+    });
+
+    for (const asset of legacyAssets) {
+      const objectKey = `assets-original/org_public/${asset.id}/${asset.filename.replace(/\.[^.]+$/, "")}.svg`;
+      await writeObjectBuffer(
+        objectKey,
+        buildLegacyAssetSvg({
+          filename: asset.filename,
+          widthPx: asset.widthPx,
+          heightPx: asset.heightPx
+        })
+      );
+      await this.prisma.asset.update({
+        where: { id: asset.id },
+        data: {
+          originalObjectKey: objectKey,
+          normalizedObjectKey: objectKey,
+          mimeType: "image/svg+xml",
+          sha256: createHash("sha256").update(await readFile(objectPathForKey(objectKey))).digest("hex")
+        }
+      });
+    }
+
+    this.repairedLegacyAssets = true;
+  }
 
   private async ensureSeeded() {
     if (this.seeded) {
@@ -599,6 +666,7 @@ export class DatabaseRuntimeStore {
       });
     }
 
+    await this.repairLegacyAssets();
     this.seeded = true;
   }
 

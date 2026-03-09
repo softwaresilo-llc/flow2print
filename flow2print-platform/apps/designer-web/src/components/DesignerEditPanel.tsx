@@ -448,7 +448,9 @@ export const DesignerEditPanel = ({
         </div>
         <div className="badge-row">
           <span className="badge badge--neutral">{selectedLayer.visible ? "Visible" : "Hidden"}</span>
-          <span className="badge badge--neutral">{selectedLayer.locked ? "Locked" : "Editable"}</span>
+          <span className={`badge ${selectedLayer.locked ? "badge--danger" : "badge--neutral"}`}>
+            {selectedLayer.locked ? "Locked" : "Editable"}
+          </span>
         </div>
       </div>
     </div>

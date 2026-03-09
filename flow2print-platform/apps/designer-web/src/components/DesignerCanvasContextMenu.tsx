@@ -1,26 +1,25 @@
 import { useLayoutEffect, useRef, useState, type RefObject } from "react";
 
-interface DesignerAssetContextMenuProps {
+interface DesignerCanvasContextMenuAction {
+  id: string;
+  label: string;
+  icon: string;
+  onSelect: () => void;
+}
+
+interface DesignerCanvasContextMenuProps {
   x: number;
   y: number;
-  assetName: string;
-  linked: boolean;
-  onPlace: () => void;
-  onReplace?: () => void;
-  onDelete: () => void;
+  actions: DesignerCanvasContextMenuAction[];
   menuRef?: RefObject<HTMLDivElement | null>;
 }
 
-export const DesignerAssetContextMenu = ({
+export const DesignerCanvasContextMenu = ({
   x,
   y,
-  assetName,
-  linked,
-  onPlace,
-  onReplace,
-  onDelete,
+  actions,
   menuRef: externalMenuRef
-}: DesignerAssetContextMenuProps) => {
+}: DesignerCanvasContextMenuProps) => {
   const internalMenuRef = useRef<HTMLDivElement | null>(null);
   const [position, setPosition] = useState({ left: x, top: y });
   const menuRef = externalMenuRef ?? internalMenuRef;
@@ -39,30 +38,27 @@ export const DesignerAssetContextMenu = ({
     const nextTop = fitsBelow ? Math.max(margin, y) : Math.max(margin, y - rect.height - 10);
 
     setPosition({ left: nextLeft, top: nextTop });
-  }, [assetName, linked, x, y]);
+  }, [actions, x, y]);
 
   return (
     <div
       ref={menuRef}
-      className="context-menu"
+      className="context-menu context-menu--canvas"
       style={{ left: position.left, top: position.top }}
       onPointerDown={(event) => event.stopPropagation()}
     >
       <div className="context-menu__header">
-        <strong>{assetName}</strong>
-        <span>{linked ? "used in layout" : "library asset"}</span>
+        <strong>Canvas</strong>
+        <span>Quick actions</span>
       </div>
-      <button type="button" onClick={onPlace}>
-        Place on canvas
-      </button>
-      {linked && onReplace ? (
-        <button type="button" onClick={onReplace}>
-          Replace selected image
+      {actions.map((action) => (
+        <button key={action.id} type="button" onClick={action.onSelect}>
+          <span className="material-symbols-outlined" aria-hidden="true">
+            {action.icon}
+          </span>
+          <span>{action.label}</span>
         </button>
-      ) : null}
-      <button type="button" className="context-menu__danger" onClick={onDelete}>
-        Delete from library
-      </button>
+      ))}
     </div>
   );
 };
